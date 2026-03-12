@@ -286,7 +286,7 @@ Public Class Form1
         Dim settings As New XmlWriterSettings() With {
             .Indent = True,
             .IndentChars = "  ",
-            .Encoding = New UTF8Encoding(False)   ' UTF-8 without BOM
+            .Encoding = New UTF8Encoding(False)   ' UTF-8 without Byte Order Mark (BOM)
         }
         Using writer = XmlWriter.Create(track.FilePath, settings)
             doc.Save(writer)
