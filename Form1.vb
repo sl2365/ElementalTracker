@@ -6,11 +6,11 @@ Imports System.Windows.Forms
 Imports System.Xml
 
 ''' <summary>
-''' Main application form.
-''' Left pane  – ListView of SPS tracks loaded from a folder.
-''' Right pane – Track details (editable) and a web-page viewer with
-'''              text search / navigation.  Clicking a ListView item
-'''              instantly populates the right pane.
+''' Main application form – single window, SplitContainer design.
+''' Left pane  – ListView of SPS tracks (with checkboxes) loaded from a folder.
+''' Right pane – Track details editor and web-page viewer for version tracking.
+'''              All right-pane controls are disabled when no track is selected.
+'''              Left-clicking a ListView item instantly populates the right pane.
 ''' </summary>
 Public Class Form1
 
@@ -20,10 +20,6 @@ Public Class Form1
     Private tracks As New List(Of SpsTrack)()
     Private currentTrack As SpsTrack = Nothing
     Private currentFolder As String = String.Empty
-
-    ' Search state for the RichTextBox
-    Private searchMatches As New List(Of Integer)()
-    Private currentMatchIndex As Integer = -1
 
     ' Config file path (per-user AppData)
     Private ReadOnly configFilePath As String =
@@ -37,6 +33,7 @@ Public Class Form1
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         ' Enable modern TLS for HTTPS downloads
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 Or SecurityProtocolType.Tls11
+        SetRightPaneEnabled(False)
         LoadConfig()
         UpdateStatusBar()
     End Sub
@@ -46,8 +43,21 @@ Public Class Form1
     End Sub
 
     '============================================================
-    ' Configuration – save / load window state, splitter positions,
-    ' and the last-used folder.
+    ' Right-pane Enable / Disable
+    '============================================================
+
+    ''' <summary>
+    ''' Enables or disables all right-pane controls.
+    ''' Pass False when no track is selected; True when one is selected.
+    ''' </summary>
+    Private Sub SetRightPaneEnabled(enabled As Boolean)
+        grpDetails.Enabled = enabled
+        pnlWebControls.Enabled = enabled
+        rtbContent.Enabled = enabled
+    End Sub
+
+    '============================================================
+    ' Configuration – window state, splitter positions, last folder
     '============================================================
 
     Private Sub LoadConfig()
@@ -67,7 +77,6 @@ Public Class Form1
                 Dim width = XmlInt(winNode, "Width", Me.Width)
                 Dim height = XmlInt(winNode, "Height", Me.Height)
                 Dim maximized = XmlBool(winNode, "Maximized", False)
-
                 Me.Left = left
                 Me.Top = top
                 Me.Width = Math.Max(900, width)
@@ -79,7 +88,7 @@ Public Class Form1
             Dim splitNode = root.SelectSingleNode("Splitters")
             If splitNode IsNot Nothing Then
                 splitMain.SplitterDistance = Math.Max(150, XmlInt(splitNode, "MainSplit", 380))
-                splitRight.SplitterDistance = Math.Max(120, XmlInt(splitNode, "RightSplit", 230))
+                splitRight.SplitterDistance = Math.Max(120, XmlInt(splitNode, "RightSplit", 310))
             End If
 
             ' Last folder
@@ -152,14 +161,17 @@ Public Class Form1
         Return If(Boolean.TryParse(child.InnerText, v), v, def)
     End Function
 
-    Private Shared Function AppendElement(doc As XmlDocument, parent As XmlNode, name As String, Optional value As String = Nothing) As XmlElement
+    Private Shared Function AppendElement(doc As XmlDocument, parent As XmlNode,
+                                           name As String,
+                                           Optional value As String = Nothing) As XmlElement
         Dim el = doc.CreateElement(name)
         If value IsNot Nothing Then el.InnerText = value
         parent.AppendChild(el)
         Return el
     End Function
 
-    Private Shared Sub SetNodeText(doc As XmlDocument, parent As XmlNode, name As String, value As String)
+    Private Shared Sub SetNodeText(doc As XmlDocument, parent As XmlNode,
+                                    name As String, value As String)
         Dim node = parent.SelectSingleNode(name)
         If node Is Nothing Then
             node = doc.CreateElement(name)
@@ -192,6 +204,7 @@ Public Class Form1
         tracks.Clear()
         lvwTracks.Items.Clear()
         ClearRightPanel()
+        SetRightPaneEnabled(False)
 
         Try
             Dim spsFiles = Directory.GetFiles(folder, "*.sps", SearchOption.TopDirectoryOnly)
@@ -206,13 +219,13 @@ Public Class Form1
             Next
             lvwTracks.EndUpdate()
 
-            sslStatus.Text = $"Loaded {tracks.Count} track(s) from: {folder}"
+            sslFileName.Text = $"Folder: {folder}"
             UpdateStatusBar()
 
         Catch ex As Exception
             MessageBox.Show($"Error loading folder:{Environment.NewLine}{ex.Message}",
                             "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
-            sslStatus.Text = "Error loading folder"
+            sslFileName.Text = "Error loading folder"
         End Try
     End Sub
 
@@ -244,6 +257,9 @@ Public Class Form1
             track.InfoLink = GetNodeText(pkg, "InfoLink")
             track.DownloadLink = GetNodeText(pkg, "DownloadLink")
             track.Checksum = GetNodeText(pkg, "Checksum")
+            track.TrackUrl = GetNodeText(pkg, "TrackUrl")
+            track.StartString = GetNodeText(pkg, "StartString")
+            track.StopString = GetNodeText(pkg, "StopString")
 
             ' Fall back to filename when Title is absent
             If String.IsNullOrWhiteSpace(track.Title) Then
@@ -282,11 +298,14 @@ Public Class Form1
         SetNodeText(doc, pkg, "ExternalVersion", track.ExternalVersion)
         SetNodeText(doc, pkg, "HomePage", track.HomePage)
         SetNodeText(doc, pkg, "DownloadLink", track.DownloadLink)
+        SetNodeText(doc, pkg, "TrackUrl", track.TrackUrl)
+        SetNodeText(doc, pkg, "StartString", track.StartString)
+        SetNodeText(doc, pkg, "StopString", track.StopString)
 
         Dim settings As New XmlWriterSettings() With {
             .Indent = True,
             .IndentChars = "  ",
-            .Encoding = New UTF8Encoding(False)   ' UTF-8 without Byte Order Mark (BOM)
+            .Encoding = New UTF8Encoding(False)   ' UTF-8 without Byte Order Mark
         }
         Using writer = XmlWriter.Create(track.FilePath, settings)
             doc.Save(writer)
@@ -306,7 +325,7 @@ Public Class Form1
     End Function
 
     '============================================================
-    ' ListView – selection changed → populate right panel
+    ' ListView – selection changed → populate / clear right pane
     '============================================================
 
     Private Sub lvwTracks_SelectedIndexChanged(sender As Object, e As EventArgs) _
@@ -314,11 +333,15 @@ Public Class Form1
 
         If lvwTracks.SelectedItems.Count = 0 Then
             currentTrack = Nothing
+            SetRightPaneEnabled(False)
             Return
         End If
 
         currentTrack = TryCast(lvwTracks.SelectedItems(0).Tag, SpsTrack)
-        If currentTrack IsNot Nothing Then PopulateRightPanel(currentTrack)
+        If currentTrack IsNot Nothing Then
+            PopulateRightPanel(currentTrack)
+            SetRightPaneEnabled(True)
+        End If
     End Sub
 
     Private Sub lvwTracks_DoubleClick(sender As Object, e As EventArgs) _
@@ -336,19 +359,17 @@ Public Class Form1
         txtVersion.Text = track.ExternalVersion
         txtHomePage.Text = track.HomePage
         txtDownloadLink.Text = track.DownloadLink
+        ' Pre-fill Track URL from HomePage when not yet set
+        txtTrackUrl.Text = GetEffectiveTrackUrl(track)
+        txtStartString.Text = track.StartString
+        txtStopString.Text = track.StopString
         txtDescription.Text = track.Description
 
-        ' Pre-fill the URL box with the home page when it's empty
-        ' or still pointing at the previous track
-        If String.IsNullOrWhiteSpace(txtUrl.Text) Then
-            txtUrl.Text = track.HomePage
-        End If
-
-        ' Clear the web pane since this is a different track
+        ' Clear the web viewer when switching to a different track
         rtbContent.Clear()
-        ClearSearchState()
+        ResetSearchState()
 
-        sslStatus.Text = $"Selected: {track.Title}"
+        sslFileName.Text = $"File: {Path.GetFileName(track.FilePath)}"
     End Sub
 
     Private Sub ClearRightPanel()
@@ -356,10 +377,13 @@ Public Class Form1
         txtVersion.Text = String.Empty
         txtHomePage.Text = String.Empty
         txtDownloadLink.Text = String.Empty
+        txtTrackUrl.Text = String.Empty
+        txtStartString.Text = String.Empty
+        txtStopString.Text = String.Empty
         txtDescription.Text = String.Empty
-        txtUrl.Text = String.Empty
+        txtFind.Text = String.Empty
         rtbContent.Clear()
-        ClearSearchState()
+        ResetSearchState()
         currentTrack = Nothing
     End Sub
 
@@ -367,12 +391,12 @@ Public Class Form1
     ' Download Web Page
     '============================================================
 
-    Private Async Sub btnDownload_Click(sender As Object, e As EventArgs) _
-        Handles btnDownload.Click
+    Private Async Sub btnDownloadPage_Click(sender As Object, e As EventArgs) _
+        Handles btnDownloadPage.Click
 
-        Dim url = txtUrl.Text.Trim()
+        Dim url = txtTrackUrl.Text.Trim()
         If String.IsNullOrWhiteSpace(url) Then
-            MessageBox.Show("Please enter a URL to download.",
+            MessageBox.Show("Please enter a Track URL to download.",
                             "No URL", MessageBoxButtons.OK, MessageBoxIcon.Warning)
             Return
         End If
@@ -385,11 +409,11 @@ Public Class Form1
             Return
         End If
 
-        btnDownload.Enabled = False
-        btnDownload.Text = "Downloading…"
-        sslStatus.Text = $"Downloading: {url}"
+        btnDownloadPage.Enabled = False
+        btnDownloadPage.Text = "Downloading…"
+        sslFileName.Text = $"Downloading: {url}"
         rtbContent.Clear()
-        ClearSearchState()
+        ResetSearchState()
 
         Try
             Dim client As New WebClient()
@@ -403,20 +427,25 @@ Public Class Form1
             Dim text = StripHtml(html)
 
             rtbContent.Text = text
-            sslStatus.Text = $"Downloaded: {url}  ({text.Length:N0} characters)"
+            sslFileName.Text = $"Downloaded {text.Length:N0} chars from: {url}"
 
         Catch ex As WebException
-            sslStatus.Text = $"Download failed: {ex.Message}"
+            sslFileName.Text = $"Download failed: {ex.Message}"
             MessageBox.Show($"Could not download the page:{Environment.NewLine}{ex.Message}",
                             "Download Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Catch ex As Exception
-            sslStatus.Text = $"Error: {ex.Message}"
+            sslFileName.Text = $"Error: {ex.Message}"
             MessageBox.Show($"Unexpected error:{Environment.NewLine}{ex.Message}",
                             "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Finally
-            btnDownload.Enabled = True
-            btnDownload.Text = "Download Page"
+            btnDownloadPage.Enabled = True
+            btnDownloadPage.Text = "Download"
         End Try
+    End Sub
+
+    Private Sub btnBrowseUrl_Click(sender As Object, e As EventArgs) _
+        Handles btnBrowseUrl.Click
+        OpenUrl(txtTrackUrl.Text.Trim())
     End Sub
 
     ''' <summary>Converts raw HTML to readable plain text.</summary>
@@ -445,136 +474,183 @@ Public Class Form1
         Return result.Trim()
     End Function
 
-    Private Sub btnClearPage_Click(sender As Object, e As EventArgs) _
-        Handles btnClearPage.Click
+    '============================================================
+    ' Start/Stop String – Find in Page
+    '============================================================
 
-        rtbContent.Clear()
-        ClearSearchState()
-        sslStatus.Text = "Page cleared"
+    Private Sub btnFindStart_Click(sender As Object, e As EventArgs) _
+        Handles btnFindStart.Click
+        FindStringInContent(txtStartString.Text, "Start String")
     End Sub
 
-    '============================================================
-    ' Text Search – find / navigate in RichTextBox
-    '============================================================
-
-    Private Sub ClearSearchState()
-        searchMatches.Clear()
-        currentMatchIndex = -1
-        lblMatches.Text = "No matches"
-        lblMatches.ForeColor = Drawing.Color.Gray
+    Private Sub btnFindStop_Click(sender As Object, e As EventArgs) _
+        Handles btnFindStop.Click
+        FindStringInContent(txtStopString.Text, "Stop String")
     End Sub
 
     ''' <summary>
-    ''' Builds the full match list, highlights every occurrence in yellow,
-    ''' and updates the match counter label.
+    ''' Finds the first occurrence of <paramref name="searchText"/> in the
+    ''' RichTextBox, highlights it in orange, and scrolls to it.
     ''' </summary>
-    Private Sub FindAllMatches(searchTerm As String)
-        ClearSearchState()
-        If String.IsNullOrEmpty(searchTerm) OrElse String.IsNullOrEmpty(rtbContent.Text) Then Return
+    Private Sub FindStringInContent(searchText As String, fieldName As String)
+        If String.IsNullOrWhiteSpace(searchText) Then
+            MessageBox.Show($"Please enter a {fieldName} value before searching.",
+                            "No Search String", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
 
-        Dim textLower = rtbContent.Text.ToLowerInvariant()
-        Dim termLower = searchTerm.ToLowerInvariant()
+        If String.IsNullOrEmpty(rtbContent.Text) Then
+            MessageBox.Show("The page content is empty. Download a page first.",
+                            "No Content", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
 
-        Dim pos = 0
-        Do
-            pos = textLower.IndexOf(termLower, pos, StringComparison.Ordinal)
-            If pos = -1 Then Exit Do
-            searchMatches.Add(pos)
-            pos += termLower.Length
-        Loop
-
-        If searchMatches.Count > 0 Then
-            lblMatches.Text = $"{searchMatches.Count} match{If(searchMatches.Count = 1, "", "es")}"
-            lblMatches.ForeColor = Drawing.Color.LimeGreen
-            HighlightAllMatches(searchTerm)
+        Dim pos = rtbContent.Text.IndexOf(searchText, StringComparison.OrdinalIgnoreCase)
+        If pos >= 0 Then
+            ' Reset colours, then highlight the hit
+            rtbContent.SelectAll()
+            rtbContent.SelectionBackColor = Drawing.Color.Black
+            rtbContent.SelectionColor = Drawing.Color.Lime
+            rtbContent.Select(pos, searchText.Length)
+            rtbContent.SelectionBackColor = Drawing.Color.Orange
+            rtbContent.SelectionColor = Drawing.Color.Black
+            rtbContent.ScrollToCaret()
+            sslFileName.Text = $"{fieldName} found at position {pos}"
         Else
-            lblMatches.Text = "No matches"
+            sslFileName.Text = $"{fieldName} not found in page content"
+            MessageBox.Show($"The {fieldName} text was not found in the page content.",
+                            "Not Found", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        End If
+    End Sub
+
+    '============================================================
+    ' Text Search – 4-direction find in RichTextBox
+    '============================================================
+
+    Private Sub ResetSearchState()
+        lblMatches.Text = String.Empty
+        lblMatches.ForeColor = Drawing.Color.Gray
+    End Sub
+
+    ''' <summary>Search forward from the very beginning of the content.</summary>
+    Private Sub btnFindFromTop_Click(sender As Object, e As EventArgs) _
+        Handles btnFindFromTop.Click
+
+        Dim term = txtFind.Text
+        If String.IsNullOrEmpty(term) OrElse String.IsNullOrEmpty(rtbContent.Text) Then Return
+
+        Dim pos = rtbContent.Text.IndexOf(term, 0, StringComparison.OrdinalIgnoreCase)
+        If pos >= 0 Then
+            HighlightSearchResult(pos, term.Length)
+            ' Place caret just after the hit so From CARET continues forward
+            rtbContent.Select(pos + term.Length, 0)
+            lblMatches.Text = $"Found at {pos}"
+            lblMatches.ForeColor = Drawing.Color.LimeGreen
+        Else
+            lblMatches.Text = "Not found"
             lblMatches.ForeColor = Drawing.Color.Red
         End If
     End Sub
 
-    ''' <summary>Paints all matches yellow, leaving the rest in the default colours.</summary>
-    Private Sub HighlightAllMatches(searchTerm As String)
-        If searchMatches.Count = 0 Then Return
+    ''' <summary>Search forward from the current caret position.</summary>
+    Private Sub btnFindFromCaret_Click(sender As Object, e As EventArgs) _
+        Handles btnFindFromCaret.Click
 
-        ' Reset the entire text to default colours first
-        rtbContent.SelectAll()
-        rtbContent.SelectionBackColor = Drawing.Color.Black
-        rtbContent.SelectionColor = Drawing.Color.Lime
+        Dim term = txtFind.Text
+        If String.IsNullOrEmpty(term) OrElse String.IsNullOrEmpty(rtbContent.Text) Then Return
 
-        ' Highlight each match
-        For Each pos In searchMatches
-            rtbContent.Select(pos, searchTerm.Length)
-            rtbContent.SelectionBackColor = Drawing.Color.Yellow
-            rtbContent.SelectionColor = Drawing.Color.Black
-        Next
+        Dim startPos = rtbContent.SelectionStart + rtbContent.SelectionLength
+        If startPos >= rtbContent.Text.Length Then startPos = 0
 
-        rtbContent.Select(0, 0)
+        Dim pos = rtbContent.Text.IndexOf(term, startPos, StringComparison.OrdinalIgnoreCase)
+        If pos >= 0 Then
+            HighlightSearchResult(pos, term.Length)
+            rtbContent.Select(pos + term.Length, 0)
+            lblMatches.Text = $"Found at {pos}"
+            lblMatches.ForeColor = Drawing.Color.LimeGreen
+        Else
+            lblMatches.Text = "Not found from caret"
+            lblMatches.ForeColor = Drawing.Color.Red
+        End If
+    End Sub
+
+    ''' <summary>Search backward from the very end of the content.</summary>
+    Private Sub btnFindRevBottom_Click(sender As Object, e As EventArgs) _
+        Handles btnFindRevBottom.Click
+
+        Dim term = txtFind.Text
+        If String.IsNullOrEmpty(term) OrElse String.IsNullOrEmpty(rtbContent.Text) Then Return
+
+        Dim pos = rtbContent.Text.LastIndexOf(term, StringComparison.OrdinalIgnoreCase)
+        If pos >= 0 Then
+            HighlightSearchResult(pos, term.Length)
+            rtbContent.Select(pos, 0)
+            lblMatches.Text = $"Found at {pos} (from bottom)"
+            lblMatches.ForeColor = Drawing.Color.LimeGreen
+        Else
+            lblMatches.Text = "Not found"
+            lblMatches.ForeColor = Drawing.Color.Red
+        End If
+    End Sub
+
+    ''' <summary>Search backward from the current caret position.</summary>
+    Private Sub btnFindRevCaret_Click(sender As Object, e As EventArgs) _
+        Handles btnFindRevCaret.Click
+
+        Dim term = txtFind.Text
+        If String.IsNullOrEmpty(term) OrElse String.IsNullOrEmpty(rtbContent.Text) Then Return
+
+        Dim caretPos = rtbContent.SelectionStart
+        ' If caret is at the very start, wrap to end
+        If caretPos <= 0 Then caretPos = rtbContent.Text.Length
+
+        Dim searchFrom = Math.Max(0, Math.Min(caretPos - 1, rtbContent.Text.Length - 1))
+        If searchFrom < 0 Then
+            lblMatches.Text = "Not found (reverse)"
+            lblMatches.ForeColor = Drawing.Color.Red
+            Return
+        End If
+
+        Dim pos = rtbContent.Text.LastIndexOf(term, searchFrom, StringComparison.OrdinalIgnoreCase)
+        If pos >= 0 Then
+            HighlightSearchResult(pos, term.Length)
+            rtbContent.Select(pos, 0)
+            lblMatches.Text = $"Found at {pos} (rev from caret)"
+            lblMatches.ForeColor = Drawing.Color.LimeGreen
+        Else
+            lblMatches.Text = "Not found (reverse from caret)"
+            lblMatches.ForeColor = Drawing.Color.Red
+        End If
     End Sub
 
     ''' <summary>
-    ''' Scrolls to and highlights the match at <paramref name="index"/>
-    ''' (wraps around).  Orange indicates the "current" match.
+    ''' Resets all text colours, then highlights the match at
+    ''' <paramref name="pos"/> in yellow and scrolls to it.
     ''' </summary>
-    Private Sub NavigateToMatch(index As Integer)
-        If searchMatches.Count = 0 Then Return
-
-        ' Wrap
-        If index < 0 Then index = searchMatches.Count - 1
-        If index >= searchMatches.Count Then index = 0
-        currentMatchIndex = index
-
-        Dim pos = searchMatches(index)
-        Dim termLen = txtFind.Text.Length
-
-        ' Re-colour previous current match back to yellow
-        HighlightAllMatches(txtFind.Text)
-
-        ' Colour current match orange
-        rtbContent.Select(pos, termLen)
-        rtbContent.SelectionBackColor = Drawing.Color.Orange
+    Private Sub HighlightSearchResult(pos As Integer, length As Integer)
+        rtbContent.SelectAll()
+        rtbContent.SelectionBackColor = Drawing.Color.Black
+        rtbContent.SelectionColor = Drawing.Color.Lime
+        rtbContent.Select(pos, length)
+        rtbContent.SelectionBackColor = Drawing.Color.Yellow
         rtbContent.SelectionColor = Drawing.Color.Black
         rtbContent.ScrollToCaret()
-
-        lblMatches.Text = $"{index + 1} of {searchMatches.Count}"
-        lblMatches.ForeColor = Drawing.Color.LimeGreen
     End Sub
 
-    Private Sub btnFindFirst_Click(sender As Object, e As EventArgs) _
-        Handles btnFindFirst.Click
-
-        FindAllMatches(txtFind.Text)
-        If searchMatches.Count > 0 Then NavigateToMatch(0)
-    End Sub
-
-    Private Sub btnFindPrev_Click(sender As Object, e As EventArgs) _
-        Handles btnFindPrev.Click
-
-        If searchMatches.Count = 0 Then FindAllMatches(txtFind.Text)
-        If searchMatches.Count > 0 Then NavigateToMatch(currentMatchIndex - 1)
-    End Sub
-
-    Private Sub btnFindNext_Click(sender As Object, e As EventArgs) _
-        Handles btnFindNext.Click
-
-        If searchMatches.Count = 0 Then FindAllMatches(txtFind.Text)
-        If searchMatches.Count > 0 Then NavigateToMatch(currentMatchIndex + 1)
-    End Sub
-
+    ''' <summary>Enter = From CARET; Shift+Enter = Rev from CARET; Esc = reset.</summary>
     Private Sub txtFind_KeyDown(sender As Object, e As KeyEventArgs) _
         Handles txtFind.KeyDown
 
         Select Case e.KeyCode
             Case Keys.Enter
                 If e.Shift Then
-                    btnFindPrev_Click(sender, e)
+                    btnFindRevCaret_Click(sender, e)
                 Else
-                    btnFindNext_Click(sender, e)
+                    btnFindFromCaret_Click(sender, e)
                 End If
                 e.Handled = True
             Case Keys.Escape
-                ClearSearchState()
-                ' Restore default colours
+                ResetSearchState()
                 rtbContent.SelectAll()
                 rtbContent.SelectionBackColor = Drawing.Color.Black
                 rtbContent.SelectionColor = Drawing.Color.Lime
@@ -584,7 +660,134 @@ Public Class Form1
     End Sub
 
     '============================================================
-    ' Save Track
+    ' Track Checked Lines – batch version extraction
+    '============================================================
+
+    ''' <summary>
+    ''' For every checked ListView item: downloads the Track URL, extracts
+    ''' the version string between StartString and StopString, updates the
+    ''' ExternalVersion field, and saves the SPS file.
+    ''' </summary>
+    Private Async Sub TrackCheckedLines()
+        Dim checkedItems = lvwTracks.Items.Cast(Of ListViewItem)().
+                           Where(Function(i) i.Checked).ToList()
+
+        If checkedItems.Count = 0 Then
+            MessageBox.Show("Please check at least one track in the list.",
+                            "No Tracks Checked", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        If String.IsNullOrWhiteSpace(currentFolder) Then
+            MessageBox.Show("Please open a folder first.",
+                            "No Folder Open", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        tsbTrackChecked.Enabled = False
+        sslProgress.Visible = True
+        sslProgress.Minimum = 0
+        sslProgress.Maximum = checkedItems.Count
+        sslProgress.Value = 0
+
+        Dim updated = 0
+        Dim errors = 0
+
+        Dim client As New WebClient()
+        client.Encoding = Encoding.UTF8
+        client.Headers.Add(HttpRequestHeader.UserAgent,
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " &
+            "AppleWebKit/537.36 (KHTML, like Gecko) " &
+            "Chrome/120.0 Safari/537.36")
+
+        For Each item As ListViewItem In checkedItems
+            Dim track = TryCast(item.Tag, SpsTrack)
+            If track Is Nothing Then Continue For
+
+            sslFileName.Text = $"Tracking: {track.Title}…"
+
+            Try
+                ' Use TrackUrl; fall back to HomePage
+                Dim url = GetEffectiveTrackUrl(track)
+                If String.IsNullOrWhiteSpace(url) Then Continue For
+
+                Dim uri As Uri = Nothing
+                If Not Uri.TryCreate(url, UriKind.Absolute, uri) Then Continue For
+
+                Dim html = Await client.DownloadStringTaskAsync(uri)
+                Dim text = StripHtml(html)
+
+                If Not String.IsNullOrWhiteSpace(track.StartString) AndAlso
+                   Not String.IsNullOrWhiteSpace(track.StopString) Then
+
+                    Dim extracted = ExtractBetween(text, track.StartString, track.StopString)
+                    If Not String.IsNullOrWhiteSpace(extracted) Then
+                        track.ExternalVersion = extracted.Trim()
+                        track.Status = "Updated"
+                        item.SubItems(1).Text = track.ExternalVersion
+                        item.SubItems(2).Text = track.Status
+                        Try
+                            SaveSpsFile(track)
+                            updated += 1
+                        Catch saveEx As Exception
+                            track.Status = "Save Error"
+                            item.SubItems(2).Text = track.Status
+                            errors += 1
+                        End Try
+                    Else
+                        track.Status = "No Match"
+                        item.SubItems(2).Text = track.Status
+                    End If
+                End If
+
+            Catch ex As Exception
+                track.Status = "Error"
+                item.SubItems(2).Text = track.Status
+                errors += 1
+            End Try
+
+            sslProgress.Value = Math.Min(sslProgress.Value + 1, sslProgress.Maximum)
+        Next
+
+        sslProgress.Visible = False
+        tsbTrackChecked.Enabled = True
+        sslFileName.Text =
+            $"Track complete: {updated} updated, {errors} error(s), {checkedItems.Count} checked"
+        UpdateStatusBar()
+    End Sub
+
+    ''' <summary>
+    ''' Returns the effective URL to use when tracking a version for
+    ''' <paramref name="track"/>: the explicit TrackUrl when set, otherwise
+    ''' the HomePage as a fallback.
+    ''' </summary>
+    Private Shared Function GetEffectiveTrackUrl(track As SpsTrack) As String
+        Return If(String.IsNullOrWhiteSpace(track.TrackUrl), track.HomePage, track.TrackUrl)
+    End Function
+
+    ''' <summary>
+    ''' Returns the text between the first occurrence of <paramref name="startMarker"/>
+    ''' and the first <paramref name="stopMarker"/> that follows it.
+    ''' Comparison is case-insensitive.
+    ''' </summary>
+    Private Shared Function ExtractBetween(content As String,
+                                            startMarker As String,
+                                            stopMarker As String) As String
+        If String.IsNullOrEmpty(content) Then Return String.Empty
+
+        Dim startIdx = content.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase)
+        If startIdx < 0 Then Return String.Empty
+
+        startIdx += startMarker.Length
+
+        Dim stopIdx = content.IndexOf(stopMarker, startIdx, StringComparison.OrdinalIgnoreCase)
+        If stopIdx < 0 Then Return String.Empty
+
+        Return content.Substring(startIdx, stopIdx - startIdx).Trim()
+    End Function
+
+    '============================================================
+    ' Save / Save-Exit Track
     '============================================================
 
     Private Sub SaveCurrentTrack()
@@ -594,11 +797,14 @@ Public Class Form1
             Return
         End If
 
-        ' Push UI values into the track object
+        ' Copy UI values into the track object
         currentTrack.Title = txtName.Text.Trim()
         currentTrack.ExternalVersion = txtVersion.Text.Trim()
         currentTrack.HomePage = txtHomePage.Text.Trim()
         currentTrack.DownloadLink = txtDownloadLink.Text.Trim()
+        currentTrack.TrackUrl = txtTrackUrl.Text.Trim()
+        currentTrack.StartString = txtStartString.Text.Trim()
+        currentTrack.StopString = txtStopString.Text.Trim()
         currentTrack.Description = txtDescription.Text.Trim()
 
         Try
@@ -610,12 +816,26 @@ Public Class Form1
             item.SubItems(1).Text = currentTrack.ExternalVersion
             item.SubItems(2).Text = currentTrack.Status
 
-            sslStatus.Text = $"Saved: {currentTrack.Title}"
+            sslFileName.Text = $"Saved: {currentTrack.Title}"
 
         Catch ex As Exception
             MessageBox.Show($"Error saving track:{Environment.NewLine}{ex.Message}",
                             "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
+    End Sub
+
+    ''' <summary>
+    ''' Saves the current track, then deselects it and returns the
+    ''' right pane to its disabled/empty state.
+    ''' </summary>
+    Private Sub SaveAndExit()
+        SaveCurrentTrack()
+        If currentTrack IsNot Nothing Then   ' SaveCurrentTrack may have failed
+            lvwTracks.SelectedItems.Clear()
+            ClearRightPanel()
+            SetRightPaneEnabled(False)
+            sslFileName.Text = "Ready"
+        End If
     End Sub
 
     '============================================================
@@ -629,11 +849,9 @@ Public Class Form1
             Return
         End If
 
-        ' Deselect any current item
         lvwTracks.SelectedItems.Clear()
         ClearRightPanel()
 
-        ' Build a new empty track
         Dim track As New SpsTrack() With {
             .FilePath = Path.Combine(currentFolder, "new_track.sps"),
             .Title = "New Track",
@@ -648,12 +866,12 @@ Public Class Form1
         item.Selected = True
         item.EnsureVisible()
 
-        ' Populate the right panel and place focus in the name field
         PopulateRightPanel(track)
+        SetRightPaneEnabled(True)
         txtName.Focus()
         txtName.SelectAll()
 
-        sslStatus.Text = "New track created – fill in details and click Save"
+        sslFileName.Text = "New track created – fill in details and click Save"
         UpdateStatusBar()
     End Sub
 
@@ -678,7 +896,8 @@ Public Class Form1
                 tracks.Remove(track)
                 lvwTracks.SelectedItems(0).Remove()
                 ClearRightPanel()
-                sslStatus.Text = $"Deleted: {track.Title}"
+                SetRightPaneEnabled(False)
+                sslFileName.Text = $"Deleted: {track.Title}"
                 UpdateStatusBar()
             Catch ex As Exception
                 MessageBox.Show($"Error deleting track:{Environment.NewLine}{ex.Message}",
@@ -702,7 +921,7 @@ Public Class Form1
     End Sub
 
     '============================================================
-    ' Status bar helper
+    ' Status bar
     '============================================================
 
     Private Sub UpdateStatusBar()
@@ -718,6 +937,21 @@ Public Class Form1
         OpenFolder()
     End Sub
 
+    Private Sub tsbTrackChecked_Click(sender As Object, e As EventArgs) _
+        Handles tsbTrackChecked.Click
+        TrackCheckedLines()
+    End Sub
+
+    Private Sub tsbRebuild_Click(sender As Object, e As EventArgs) _
+        Handles tsbRebuild.Click
+        If String.IsNullOrWhiteSpace(currentFolder) Then
+            MessageBox.Show("Please open a folder first.",
+                            "No Folder", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+        LoadTracksFromFolder(currentFolder)
+    End Sub
+
     Private Sub tsbAddTrack_Click(sender As Object, e As EventArgs) _
         Handles tsbAddTrack.Click
         AddNewTrack()
@@ -728,9 +962,9 @@ Public Class Form1
         DeleteSelectedTrack()
     End Sub
 
-    Private Sub tsbSave_Click(sender As Object, e As EventArgs) _
-        Handles tsbSave.Click
-        SaveCurrentTrack()
+    Private Sub tsbHelp_Click(sender As Object, e As EventArgs) _
+        Handles tsbHelp.Click
+        ShowHelp()
     End Sub
 
     '============================================================
@@ -762,6 +996,11 @@ Public Class Form1
         DeleteSelectedTrack()
     End Sub
 
+    Private Sub tsmiHelpContents_Click(sender As Object, e As EventArgs) _
+        Handles tsmiHelpContents.Click
+        ShowHelp()
+    End Sub
+
     Private Sub tsmiAbout_Click(sender As Object, e As EventArgs) _
         Handles tsmiAbout.Click
         MessageBox.Show(
@@ -775,6 +1014,46 @@ Public Class Form1
     End Sub
 
     '============================================================
+    ' Help
+    '============================================================
+
+    Private Sub ShowHelp()
+        Dim helpText As String =
+            "SPS PortableAppTrack – Help" & Environment.NewLine &
+            Environment.NewLine &
+            "LEFT PANE – Track List:" & Environment.NewLine &
+            "  Open Folder        – load all .sps files from a folder" & Environment.NewLine &
+            "  Track Checked Lines – download each checked track's page and" & Environment.NewLine &
+            "                        extract the version between Start/Stop strings" & Environment.NewLine &
+            "  ReBuild             – reload tracks from the current folder" & Environment.NewLine &
+            "  Add / Delete        – create or remove individual tracks" & Environment.NewLine &
+            "  Check boxes         – tick tracks for batch version tracking" & Environment.NewLine &
+            "  Left-click a track  – edit its details in the right pane" & Environment.NewLine &
+            Environment.NewLine &
+            "RIGHT PANE – Track Details:" & Environment.NewLine &
+            "  Track URL    – URL of the page to download for version checking" & Environment.NewLine &
+            "  Download     – fetch the Track URL and show content below" & Environment.NewLine &
+            "  Browser      – open the Track URL in the default web browser" & Environment.NewLine &
+            "  Start String – text appearing just BEFORE the version number" & Environment.NewLine &
+            "  Stop String  – text appearing just AFTER  the version number" & Environment.NewLine &
+            "  Find in Page – locate the Start/Stop string in the content" & Environment.NewLine &
+            "  Save Changes – save track data to the SPS file (Ctrl+S)" & Environment.NewLine &
+            "  Save && Exit – save, then deselect and return to list view" & Environment.NewLine &
+            Environment.NewLine &
+            "FIND TOOLBAR (below the content area):" & Environment.NewLine &
+            "  From TOP        – search forward from start of content" & Environment.NewLine &
+            "  From CARET      – search forward from cursor position" & Environment.NewLine &
+            "  Rev from BOTTOM – search backward from end of content" & Environment.NewLine &
+            "  Rev from CARET  – search backward from cursor position" & Environment.NewLine &
+            "  Enter           – From CARET" & Environment.NewLine &
+            "  Shift+Enter     – Rev from CARET" & Environment.NewLine &
+            "  Escape          – clear search highlight"
+
+        MessageBox.Show(helpText, "Help – SPS PortableAppTrack",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information)
+    End Sub
+
+    '============================================================
     ' Detail-pane button handlers
     '============================================================
 
@@ -783,24 +1062,22 @@ Public Class Form1
         SaveCurrentTrack()
     End Sub
 
+    Private Sub btnSaveExit_Click(sender As Object, e As EventArgs) _
+        Handles btnSaveExit.Click
+        SaveAndExit()
+    End Sub
+
     Private Sub btnClear_Click(sender As Object, e As EventArgs) _
         Handles btnClear.Click
         lvwTracks.SelectedItems.Clear()
         ClearRightPanel()
-        sslStatus.Text = "Ready"
+        SetRightPaneEnabled(False)
+        sslFileName.Text = "Ready"
     End Sub
 
     Private Sub btnOpenHomePage_Click(sender As Object, e As EventArgs) _
         Handles btnOpenHomePage.Click
         OpenUrl(txtHomePage.Text.Trim())
-    End Sub
-
-    Private Sub txtHomePage_Leave(sender As Object, e As EventArgs) _
-        Handles txtHomePage.Leave
-        ' Auto-fill the URL box when it is empty
-        If String.IsNullOrWhiteSpace(txtUrl.Text) Then
-            txtUrl.Text = txtHomePage.Text.Trim()
-        End If
     End Sub
 
     '============================================================
@@ -811,19 +1088,10 @@ Public Class Form1
         Handles ctxListMenu.Opening
 
         Dim hasSelection = (lvwTracks.SelectedItems.Count > 0)
-        ctxEdit.Enabled = hasSelection
         ctxOpenHome.Enabled = hasSelection
         ctxCopyHome.Enabled = hasSelection
         ctxCopyDownload.Enabled = hasSelection
         ctxDeleteTrack.Enabled = hasSelection
-    End Sub
-
-    Private Sub ctxEdit_Click(sender As Object, e As EventArgs) _
-        Handles ctxEdit.Click
-        If currentTrack IsNot Nothing Then
-            txtName.Focus()
-            txtName.SelectAll()
-        End If
     End Sub
 
     Private Sub ctxOpenHome_Click(sender As Object, e As EventArgs) _
@@ -833,17 +1101,19 @@ Public Class Form1
 
     Private Sub ctxCopyHome_Click(sender As Object, e As EventArgs) _
         Handles ctxCopyHome.Click
-        If currentTrack IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(currentTrack.HomePage) Then
+        If currentTrack IsNot Nothing AndAlso
+           Not String.IsNullOrWhiteSpace(currentTrack.HomePage) Then
             Clipboard.SetText(currentTrack.HomePage)
-            sslStatus.Text = "Home Page URL copied to clipboard"
+            sslFileName.Text = "Home Page URL copied to clipboard"
         End If
     End Sub
 
     Private Sub ctxCopyDownload_Click(sender As Object, e As EventArgs) _
         Handles ctxCopyDownload.Click
-        If currentTrack IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(currentTrack.DownloadLink) Then
+        If currentTrack IsNot Nothing AndAlso
+           Not String.IsNullOrWhiteSpace(currentTrack.DownloadLink) Then
             Clipboard.SetText(currentTrack.DownloadLink)
-            sslStatus.Text = "Download URL copied to clipboard"
+            sslFileName.Text = "Download URL copied to clipboard"
         End If
     End Sub
 
@@ -872,6 +1142,12 @@ Public Class SpsTrack
     Public Property InfoLink As String = String.Empty
     Public Property DownloadLink As String = String.Empty
     Public Property Checksum As String = String.Empty
+    ''' <summary>URL of the page to download to check for a new version.</summary>
+    Public Property TrackUrl As String = String.Empty
+    ''' <summary>Text appearing immediately before the version number on the Track URL page.</summary>
+    Public Property StartString As String = String.Empty
+    ''' <summary>Text appearing immediately after the version number on the Track URL page.</summary>
+    Public Property StopString As String = String.Empty
     Public Property Status As String = String.Empty
     Public Property IsModified As Boolean = False
 End Class
