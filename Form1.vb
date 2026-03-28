@@ -2068,7 +2068,8 @@ Public Class Form1
             s_ConfigPAT_text &= "<ColumnOrder>" & colOrder & "</ColumnOrder>" & vbCrLf
         End If
         s_ConfigPAT_text &= "<DarkMode>" & DarkModeToolStripMenuItem.Checked.ToString() & "</DarkMode>" & vbCrLf
-        s_ConfigPAT_text &= "<SplitOrientation>" & If(b_HorizontalLayout, "Horizontal", "Vertical") & "</SplitOrientation>" & vbCrLf        'Write the file
+        s_ConfigPAT_text &= "<SplitOrientation>" & If(b_HorizontalLayout, "Horizontal", "Vertical") & "</SplitOrientation>" & vbCrLf
+        'Write the file
         File.WriteAllText(s_ConfigPAT_FilePath, s_ConfigPAT_text, Encoding.UTF8)
         ShowThemedMessageBox("Configuration saved!", "Save Config", MessageBoxButtons.OK, MessageBoxIcon.Information)
     End Sub
