@@ -56,6 +56,7 @@ Partial Class Form1
         Me.ToolStrip_UncheckAll = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStripSeparator3 = New System.Windows.Forms.ToolStripSeparator()
         Me.ToolStrip_OpenInSPSBuilder = New System.Windows.Forms.ToolStripMenuItem()
+        Me.ToolStrip_OpenCheckedSPS = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStripSeparator2 = New System.Windows.Forms.ToolStripSeparator()
         Me.ToolStrip_RefreshSelectedHash = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStripSeparator1 = New System.Windows.Forms.ToolStripSeparator()
@@ -157,7 +158,7 @@ Partial Class Form1
         Me.SplitContainer1.Panel2.Controls.Add(Me.Label2)
         Me.SplitContainer1.Panel2.Controls.Add(Me.Label3)
         Me.SplitContainer1.Panel2.Controls.Add(Me.Label4)
-        
+
         '
         'Label_CurrentFile
         '
@@ -305,7 +306,7 @@ Partial Class Form1
         Me.Label_SearchBar.Anchor = CType((System.Windows.Forms.AnchorStyles.Top _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.Label_SearchBar.Font = New System.Drawing.Font("Arial", 7.8!, System.Drawing.FontStyle.Italic, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.Label_SearchBar.Location = New System.Drawing.Point(962, 32)
+        Me.Label_SearchBar.Location = New System.Drawing.Point(917, 32)
         Me.Label_SearchBar.Name = "Label_SearchBar"
         Me.Label_SearchBar.Size = New System.Drawing.Size(90, 18)
         Me.Label_SearchBar.TabIndex = 113
@@ -319,7 +320,7 @@ Partial Class Form1
 '         Me.SPS_P_Publisher_Number.BackColor = System.Drawing.SystemColors.Control
         Me.SPS_P_Publisher_Number.Font = New System.Drawing.Font("Arial", 7.8!, CType((System.Drawing.FontStyle.Bold Or System.Drawing.FontStyle.Italic), System.Drawing.FontStyle), System.Drawing.GraphicsUnit.Point, CType(0, Byte))
         Me.SPS_P_Publisher_Number.ForeColor = System.Drawing.SystemColors.HotTrack
-        Me.SPS_P_Publisher_Number.Location = New System.Drawing.Point(1060, 32)
+        Me.SPS_P_Publisher_Number.Location = New System.Drawing.Point(1015, 32)
         Me.SPS_P_Publisher_Number.Name = "SPS_P_Publisher_Number"
         Me.SPS_P_Publisher_Number.Size = New System.Drawing.Size(200, 18)
         Me.SPS_P_Publisher_Number.TabIndex = 106
@@ -331,7 +332,7 @@ Partial Class Form1
         Me.SPS_P_Tracker_Name.Anchor = CType((System.Windows.Forms.AnchorStyles.Top _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.SPS_P_Tracker_Name.Font = New System.Drawing.Font("Arial", 9.5!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.SPS_P_Tracker_Name.Location = New System.Drawing.Point(970, 50)
+        Me.SPS_P_Tracker_Name.Location = New System.Drawing.Point(925, 50)
         Me.SPS_P_Tracker_Name.Name = "SPS_P_Tracker_Name"
         Me.SPS_P_Tracker_Name.Size = New System.Drawing.Size(286, 22)
         Me.SPS_P_Tracker_Name.TabIndex = 6
@@ -343,13 +344,26 @@ Partial Class Form1
         Me.ReBuild_SPS_List.Anchor = CType((System.Windows.Forms.AnchorStyles.Top _
             Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
         Me.ReBuild_SPS_List.Font = New System.Drawing.Font("Arial", 10.2!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
-        Me.ReBuild_SPS_List.Location = New System.Drawing.Point(1267, 38)
+        Me.ReBuild_SPS_List.Location = New System.Drawing.Point(1222, 38)
         Me.ReBuild_SPS_List.Name = "ReBuild_SPS_List"
         Me.ReBuild_SPS_List.Size = New System.Drawing.Size(40, 40)
         Me.ReBuild_SPS_List.TabIndex = 7
         Me.ReBuild_SPS_List.Text = ""
         Me.ToolTip1Form2.SetToolTip(Me.ReBuild_SPS_List, "Search SPS files for the Publisher Name(s)." & vbCrLf & "If empty, gets all SPS files." & vbCrLf & "This will not erase the data written by the user.")
         Me.ReBuild_SPS_List.UseVisualStyleBackColor = True
+        '
+        'Toggle_HTMLView
+        '
+        Me.Toggle_HTMLView = New System.Windows.Forms.Button()
+        Me.Toggle_HTMLView.Anchor = CType((System.Windows.Forms.AnchorStyles.Top _
+            Or System.Windows.Forms.AnchorStyles.Right), System.Windows.Forms.AnchorStyles)
+        Me.Toggle_HTMLView.Location = New System.Drawing.Point(1267, 38)
+        Me.Toggle_HTMLView.Name = "Toggle_HTMLView"
+        Me.Toggle_HTMLView.Size = New System.Drawing.Size(40, 40)
+        Me.Toggle_HTMLView.TabIndex = 27
+        Me.Toggle_HTMLView.Text = ""
+        Me.ToolTip1Form2.SetToolTip(Me.Toggle_HTMLView, "Toggle between HTML and RTF view")
+        Me.Toggle_HTMLView.UseVisualStyleBackColor = True
         '
         'Toggle_RightPane
         '
@@ -395,18 +409,18 @@ Partial Class Form1
         Me.ToolTip1Form2.InitialDelay = 500
         Me.ToolTip1Form2.ReshowDelay = 100
         '
-        'ContextMenuStrip1 - REMOVED "Edit Selected Tracks"
+        'ContextMenuStrip1
         '
         Me.ContextMenuStrip1.ImageScalingSize = New System.Drawing.Size(20, 20)
         Me.ContextMenuStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() { _
             Me.ToolStrip_OpenInBrowser, Me.ToolStripSeparator3, _
-            Me.ToolStrip_OpenInSPSBuilder, Me.ToolStripSeparator2, _
+            Me.ToolStrip_OpenInSPSBuilder, Me.ToolStrip_OpenCheckedSPS, Me.ToolStripSeparator2, _
             Me.ToolStrip_RefreshSelectedHash, Me.ToolStripSeparator1, _
             Me.ToolStrip_DeleteSelectedTrack, Me.ToolStripSeparator7, _
             Me.ToolStrip_CheckSelected, Me.ToolStrip_UncheckSelected, Me.ToolStripSeparator8, _
             Me.ToolStrip_CheckAll, Me.ToolStrip_UncheckAll})
         Me.ContextMenuStrip1.Name = "ContextMenuStrip1"
-        Me.ContextMenuStrip1.Size = New System.Drawing.Size(279, 178)
+        Me.ContextMenuStrip1.Size = New System.Drawing.Size(279, 210)
         '
         'ToolStrip_OpenInBrowser
         '
@@ -426,6 +440,13 @@ Partial Class Form1
         Me.ToolStrip_OpenInSPSBuilder.Name = "ToolStrip_OpenInSPSBuilder"
         Me.ToolStrip_OpenInSPSBuilder.Size = New System.Drawing.Size(278, 26)
         Me.ToolStrip_OpenInSPSBuilder.Text = "Open in SPS Builder"
+        '
+        'ToolStrip_OpenCheckedSPS
+        '
+        Me.ToolStrip_OpenCheckedSPS.Image = CType(resources.GetObject("ToolStrip_OpenCheckedSPS.Image"), System.Drawing.Image)
+        Me.ToolStrip_OpenCheckedSPS.Name = "ToolStrip_OpenCheckedSPS"
+        Me.ToolStrip_OpenCheckedSPS.Size = New System.Drawing.Size(278, 26)
+        Me.ToolStrip_OpenCheckedSPS.Text = "Open checked in SPS"
         '
         'ToolStripSeparator2
         '
@@ -965,6 +986,7 @@ Partial Class Form1
         Me.Controls.Add(Me.MenuStrip1)
         Me.Controls.Add(Me.SplitContainer1)
         Me.Controls.Add(Me.Toggle_RightPane)
+        Me.Controls.Add(Me.Toggle_HTMLView)
         Me.Controls.Add(Me.Help)
         Me.Controls.Add(Me.SPS_P_Tracker_Name)
         Me.Controls.Add(Me.ReBuild_SPS_List)
@@ -1021,6 +1043,7 @@ Partial Class Form1
     Friend WithEvents ToolTip1Form1 As ToolTip
     Friend WithEvents ContextMenuStrip1 As ContextMenuStrip
     Friend WithEvents ToolStrip_OpenInSPSBuilder As ToolStripMenuItem
+    Friend WithEvents ToolStrip_OpenCheckedSPS As System.Windows.Forms.ToolStripMenuItem
     Friend WithEvents ToolStrip_RefreshSelectedHash As ToolStripMenuItem
     Friend WithEvents ToolStrip_DeleteSelectedTrack As ToolStripMenuItem
     Friend WithEvents ToolStrip_OpenInBrowser As ToolStripMenuItem
@@ -1069,6 +1092,7 @@ Partial Class Form1
     Friend WithEvents Panel_Right As System.Windows.Forms.Panel
     
     ' Right Pane Controls (from Form2)
+    Friend WithEvents Toggle_HTMLView As Button
     Friend WithEvents Track_URL As System.Windows.Forms.TextBox
     Friend WithEvents Start_String As System.Windows.Forms.TextBox
     Friend WithEvents RichTextBox1 As System.Windows.Forms.RichTextBox

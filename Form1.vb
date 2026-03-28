@@ -1,7 +1,7 @@
 REM VVV_Easy_SyMenu "SPS_Published_Track"
 REM v6.x.x.x x64 version by sl23
 REM CHANGELOG:
-REM 2026.03.12-v6.0.0.0: Major upgrade. Now compiled as x64. Updated text and buttons. Merged windows into a single split window. Added icons to buttons. Rearranged layout. Added listview selection methods. Added columns. Added Column sorting/sizing. Improved search functions to search all suites. Can now press Enter to search. Added DarkMode. Resized defaults. Changed settings extension to XML. Improved performance and GUI responsiveness. Updated Help file. PAT now works from any location, not just the default SyMenuSuite location. 
+REM 2026.03.12-v6.0.0.0: Major upgrade: Now compiled as x64. Updated text and buttons. Merged windows into a single split window. Added icons to buttons. Rearranged layout. Added listview selection methods. Added new columns. Added Column moving/sorting/sizing/hiding. Improved search functions to search all suites. Can now press Enter to search. Added DarkMode. Resized defaults. Changed settings extension to XML. Improved performance and GUI responsiveness. Updated Help file. PAT now works from any location, not just the default SyMenuSuite location. Open file now uses modern Explorer windows.
 REM
 REM 2025.01.14-V.5.2.0.1: Updated user agent strings. (https://useragents.io/explore)
         ' If any of your tracked URLs start failing because the server rejects your User-Agent as outdated or suspicious, you can go to that site, grab a current User-Agent string, and update the one in your code.
@@ -42,21 +42,28 @@ Public Class Form1
     Private m_RichText As Color = Color.FromArgb(100, 150, 255)
     Private m_DarkModeRed As Color = Color.FromArgb(160, 70, 70)
     Private m_DarkModeGreen As Color = Color.FromArgb(70, 160, 70)
+    Private m_DarkModeOrange As Color = Color.FromArgb(180, 130, 50)
     ' Light Mode Colours
     Private m_LightModeRed As Color = Color.LightCoral
     Private m_LightModeGreen As Color = Color.LightGreen
-
+    Private m_LightModeOrange As Color = Color.FromArgb(255, 200, 100)
+    
     Private bgWorker As New System.ComponentModel.BackgroundWorker
     Private b_FirstRun As Boolean = False
     Private b_CancelRebuild As Boolean = False
     Private img_TrackCheckedOriginal As Image = Nothing
+    Private img_HTMLView As Image = Nothing
+    Private img_RTFView As Image = Nothing
     Private i_RightPanelWidth As Integer = 350
     Private ReadOnly m_MsgBtnSize As New Size(60, 25)
     Private s_SyMenuSuitePath As String = Nothing
+    Private i_SortColumn As Integer = -1
+    Private bln_SortAscending As Boolean = True
+    Private b_ShowRenderedHTML As Boolean = False
 
     REM Manage the correspondence between SPS_P_ListView column header and Subitem Info
     Public Const c_SPS_Name = 0
-    Public Const c_SPS_Name_Header = "    SPS Name"
+    Public Const c_SPS_Name_Header = "     SPS Name"
     Public Const c_TrackURL = 1
     Public Const c_TrackURL_Header = "Track URL"
     Public Const c_TrackStartString = 2
@@ -161,7 +168,7 @@ Public Class Form1
                 Me.Top = S_GetsNBlockFromText(s_ConfigPAT_text, "<Form1_y>", "</Form1_y>", 1)
                 Me.Width = S_GetsNBlockFromText(s_ConfigPAT_text, "<Form1_w>", "</Form1_w>", 1)
                 Me.Height = S_GetsNBlockFromText(s_ConfigPAT_text, "<Form1_h>", "</Form1_h>", 1)
-                Me.MinimumSize = New System.Drawing.Size(850, 500)
+                Me.MinimumSize = New System.Drawing.Size(900, 500)
                 Me.SplitContainer1.SplitterWidth = 5
             Catch ex As Exception
                 ShowThemedMessageBox("Error setting form size: " & ex.Message, "Config Error")
@@ -179,6 +186,7 @@ Public Class Form1
             SPS_P_ListFile_Name.Text = Path.GetFileName(s_SPS_P_ListFile_Path)
             SPS_P_ListFile_Name.Refresh()
             Charge_SPS_P_ListView()
+            
             ' Load column visibility from config
             Try
                 ViewSPS_NameToolStripMenuItem.Checked = If(Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<SPS_Name_w>", "</SPS_Name_w>", 1)) > 0, True, False)
@@ -292,6 +300,18 @@ Public Class Form1
                 ShowThemedMessageBox("Error loading Sidebar icon: " & ex.Message)
             End Try
             Try
+                Dim resources As New System.ComponentModel.ComponentResourceManager(GetType(Form1))
+                Dim imgHTML As Image = CType(resources.GetObject("Toggle_HTMLView_HTML"), System.Drawing.Image)
+                Dim imgRTF As Image = CType(resources.GetObject("Toggle_HTMLView_RTF"), System.Drawing.Image)
+                img_HTMLView = New Bitmap(imgHTML, New Size(22, 22))
+                img_RTFView = New Bitmap(imgRTF, New Size(22, 22))
+                Me.Toggle_HTMLView.Image = img_HTMLView
+                Me.Toggle_HTMLView.ImageAlign = ContentAlignment.MiddleCenter
+                Me.Toggle_HTMLView.Text = ""
+            Catch ex As Exception
+                Me.Toggle_HTMLView.Text = "HTML"
+            End Try
+            Try
                 Dim assembly As System.Reflection.Assembly = System.Reflection.Assembly.GetExecutingAssembly()
                 Dim img As Image = Image.FromStream(assembly.GetManifestResourceStream("SPSPublishedAppTrack.Help.png"))
                 Me.Help.Image = New Bitmap(img, New Size(20, 20))
@@ -402,6 +422,7 @@ Public Class Form1
         End If
         File_Save.Enabled = False
         File_SaveAs.Enabled = False
+        Toggle_HTMLView.Enabled = False
     End Sub
     
     Private Sub Charge_SPS_P_ListView()
@@ -429,12 +450,12 @@ Public Class Form1
             SPS_P_ListView.Columns.Add(c_TrackBlockHash_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<TrackBlockHash_w>", "</TrackBlockHash_w>", 1)), HorizontalAlignment.Left)
             SPS_P_ListView.Columns.Add(c_Version_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<Version_w>", "</Version_w>", 1)), HorizontalAlignment.Left)
             SPS_P_ListView.Columns.Add(c_LatestVersion_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<LatestVersion_w>", "</LatestVersion_w>", 1)), HorizontalAlignment.Left)
-            SPS_P_ListView.Columns.Add(c_ReleaseDate_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<ReleaseDate_w>", "</ReleaseDate_w>", 1)), HorizontalAlignment.Center)
+            SPS_P_ListView.Columns.Add(c_ReleaseDate_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<ReleaseDate_w>", "</ReleaseDate_w>", 1)), HorizontalAlignment.Left)
             SPS_P_ListView.Columns.Add(c_DownloadUrl_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<DownloadUrl_w>", "</DownloadUrl_w>", 1)), HorizontalAlignment.Left)
-            SPS_P_ListView.Columns.Add(c_DownloadSizeKb_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<DownloadSizeKb_w>", "</DownloadSizeKb_w>", 1)), HorizontalAlignment.Right)
-            SPS_P_ListView.Columns.Add(c_SPSCreationDate_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<SPSCreationDate_w>", "</SPSCreationDate_w>", 1)), HorizontalAlignment.Center)
-            SPS_P_ListView.Columns.Add(c_SPSModificationDate_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<SPSModificationDate_w>", "</SPSModificationDate_w>", 1)), HorizontalAlignment.Center)
-            SPS_P_ListView.Columns.Add(c_SPSPublisherName_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<SPSPublisherName_w>", "</SPSPublisherName_w>", 1)), HorizontalAlignment.Center)
+            SPS_P_ListView.Columns.Add(c_DownloadSizeKb_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<DownloadSizeKb_w>", "</DownloadSizeKb_w>", 1)), HorizontalAlignment.Left)
+            SPS_P_ListView.Columns.Add(c_SPSCreationDate_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<SPSCreationDate_w>", "</SPSCreationDate_w>", 1)), HorizontalAlignment.Left)
+            SPS_P_ListView.Columns.Add(c_SPSModificationDate_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<SPSModificationDate_w>", "</SPSModificationDate_w>", 1)), HorizontalAlignment.Left)
+            SPS_P_ListView.Columns.Add(c_SPSPublisherName_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<SPSPublisherName_w>", "</SPSPublisherName_w>", 1)), HorizontalAlignment.Left)
             SPS_P_ListView.Columns.Add(c_SuiteName_Header, Convert.ToInt32(S_GetsNBlockFromText(s_ConfigPAT_text, "<SuiteName_w>", "</SuiteName_w>", 1)), HorizontalAlignment.Left)
             SPS_P_ListView.AllowColumnReorder = True
         End If
@@ -510,6 +531,8 @@ Public Class Form1
     '======================================
     Private Sub SPS_P_ListView_ItemSelectionChanged(ByVal sender As Object, ByVal e As ListViewItemSelectionChangedEventArgs) Handles SPS_P_ListView.ItemSelectionChanged
         If e.IsSelected Then
+            Me.Toggle_HTMLView.Enabled = True
+            RichTextBox1.Tag = Nothing
             i_TrackInEdit = e.ItemIndex
             s_SPSName = SPS_P_ListView.Items(i_TrackInEdit).SubItems(c_SPS_Name).Text
             ' Show the text fields immediately, download web page in background
@@ -534,6 +557,7 @@ Public Class Form1
             ' Always show context menu, but disable item-specific options when clicking empty space
             ToolStrip_OpenInBrowser.Enabled = (item IsNot Nothing)
             ToolStrip_OpenInSPSBuilder.Enabled = (item IsNot Nothing)
+            ToolStrip_OpenCheckedSPS.Enabled = (SPS_P_ListView.CheckedItems.Count > 0)
             ToolStrip_RefreshSelectedHash.Enabled = (item IsNot Nothing)
             ToolStrip_DeleteSelectedTrack.Enabled = (item IsNot Nothing)
             ToolStrip_CheckSelected.Enabled = (SPS_P_ListView.SelectedItems.Count > 0)
@@ -597,6 +621,7 @@ Public Class Form1
             RichTextBox1.DetectUrls = False
             RichTextBox1.ReadOnly = True
             RichTextBox1.Text = s_Web_Page
+            RichTextBox1.Tag = s_Web_Page
             REM Process block
             HighLigth_TrackBlock_in_RichTextBox(s_StartString, s_StopString)
         Catch ex As Exception
@@ -650,6 +675,12 @@ Public Class Form1
             RichTextBox1.DetectUrls = False
             RichTextBox1.ReadOnly = True
             RichTextBox1.Text = s_Web_Page
+            RichTextBox1.Tag = s_Web_Page
+            If b_ShowRenderedHTML Then
+                Dim stripped As String = StripHtmlTags(s_Web_Page)
+                RichTextBox1.Text = stripped
+                Toggle_HTMLView.Image = img_RTFView
+            End If
             HighLigth_TrackBlock_in_RichTextBox(s_StartString, s_StopString)
         Else
             Beep()
@@ -1072,6 +1103,62 @@ Public Class Form1
         End If
     End Sub
 
+    Private Sub Toggle_HTMLView_Click(sender As Object, e As EventArgs) Handles Toggle_HTMLView.Click
+        If RichTextBox1.Text.Length = 0 Then Return
+        b_ShowRenderedHTML = Not b_ShowRenderedHTML
+        If b_ShowRenderedHTML Then
+            Toggle_HTMLView.Image = img_RTFView
+            ' Store raw HTML in Tag, then show stripped version
+            If RichTextBox1.Tag Is Nothing OrElse RichTextBox1.Tag.ToString() = "" Then
+                RichTextBox1.Tag = RichTextBox1.Text
+            End If
+            Dim stripped As String = StripHtmlTags(RichTextBox1.Tag.ToString())
+            RichTextBox1.Text = stripped
+            HighLigth_TrackBlock_in_RichTextBox(Start_String.Text, Stop_String.Text)
+        Else
+            Toggle_HTMLView.Image = img_HTMLView
+            ' Restore raw HTML
+            If RichTextBox1.Tag IsNot Nothing AndAlso RichTextBox1.Tag.ToString() <> "" Then
+                RichTextBox1.Text = RichTextBox1.Tag.ToString()
+                HighLigth_TrackBlock_in_RichTextBox(Start_String.Text, Stop_String.Text)
+            End If
+        End If
+    End Sub
+    
+    Private Function StripHtmlTags(html As String) As String
+        ' Remove script and style blocks entirely
+        Dim cleaned As String = System.Text.RegularExpressions.Regex.Replace(html, "<script[^>]*>[\s\S]*?</script>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, "<style[^>]*>[\s\S]*?</style>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+        ' Remove all HTML tags
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, "<[^>]+>", "")
+        ' Decode common HTML entities
+        cleaned = cleaned.Replace("&amp;", "&")
+        cleaned = cleaned.Replace("&lt;", "<")
+        cleaned = cleaned.Replace("&gt;", ">")
+        cleaned = cleaned.Replace("&quot;", """")
+        cleaned = cleaned.Replace("&nbsp;", " ")
+        cleaned = cleaned.Replace("&#39;", "'")
+        ' Decode all numeric HTML entities (&#9658; &#169; etc.)
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, "&#(\d+);", Function(m)
+            Try
+                Return ChrW(Integer.Parse(m.Groups(1).Value))
+            Catch
+                Return m.Value
+            End Try
+        End Function)
+        ' Decode hex HTML entities (&#x25BA; etc.)
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, "&#x([0-9A-Fa-f]+);", Function(m)
+            Try
+                Return ChrW(Integer.Parse(m.Groups(1).Value, Globalization.NumberStyles.HexNumber))
+            Catch
+                Return m.Value
+            End Try
+        End Function)
+        ' Collapse multiple blank lines into one
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, "(\r?\n\s*){3,}", vbCrLf & vbCrLf)
+        Return cleaned.Trim()
+    End Function
+    
     '======================================
     ' INTEGRATED Form2 CODE - ENDS HERE
     '======================================
@@ -1368,6 +1455,7 @@ Public Class Form1
         SPS_P_Tracker_Name.Refresh()
         SPS_P_Publisher_Number.Text = SPS_P_ListView.Items.Count & " SPS Files"
         SPS_P_Publisher_Number.Refresh()
+        SelectAll_CheckBox.Checked = False
         ReBuild_SPS_List.Enabled = True
     End Sub
         
@@ -1543,20 +1631,69 @@ Public Class Form1
     End Sub
   
     Private Sub SPS_P_ListView_ColumnClick(ByVal sender As System.Object, ByVal e As System.Windows.Forms.ColumnClickEventArgs) Handles SPS_P_ListView.ColumnClick
-        Dim bln_Ascending As Boolean = True
-        If SPS_P_ListView.Sorting = SortOrder.Descending Then
-            bln_Ascending = True
+        If e.Column = i_SortColumn Then
+            bln_SortAscending = Not bln_SortAscending
         Else
-            bln_Ascending = False
+            ' New column - detect if already sorted ascending, if so start descending
+            Dim alreadyAscending As Boolean = True
+            Dim comparer As New ListViewItemComparer(e.Column, True)
+            For i As Integer = 0 To SPS_P_ListView.Items.Count - 2
+                If comparer.Compare(SPS_P_ListView.Items(i), SPS_P_ListView.Items(i + 1)) > 0 Then
+                    alreadyAscending = False
+                    Exit For
+                End If
+            Next
+            i_SortColumn = e.Column
+            bln_SortAscending = If(alreadyAscending, False, True)
         End If
-        Me.SPS_P_ListView.ListViewItemSorter = New ListViewItemComparer(e.Column, bln_Ascending)
-        If bln_Ascending = True Then
-            SPS_P_ListView.Sorting = SortOrder.Ascending
-        Else
-            SPS_P_ListView.Sorting = SortOrder.Descending
-        End If
-    End Sub
 
+        ' Clone all items
+        Dim count As Integer = SPS_P_ListView.Items.Count
+        If count = 0 Then Return
+        
+        Dim clones(count - 1) As ListViewItem
+        For i As Integer = 0 To count - 1
+            clones(i) = CType(SPS_P_ListView.Items(i).Clone(), ListViewItem)
+        Next
+        
+        Array.Sort(clones, New ListViewItemComparer(e.Column, bln_SortAscending))
+        
+        ' Copy sorted data back into existing rows
+        SPS_P_ListView.BeginUpdate()
+        For i As Integer = 0 To count - 1
+            Dim src As ListViewItem = clones(i)
+            Dim dest As ListViewItem = SPS_P_ListView.Items(i)
+            dest.Text = src.Text
+            dest.ImageKey = src.ImageKey
+            dest.Tag = src.Tag
+            dest.Checked = src.Checked
+            dest.UseItemStyleForSubItems = src.UseItemStyleForSubItems
+            dest.SubItems(0).BackColor = src.SubItems(0).BackColor
+            For j As Integer = 1 To src.SubItems.Count - 1
+                dest.SubItems(j).Text = src.SubItems(j).Text
+                dest.SubItems(j).BackColor = src.SubItems(j).BackColor
+                dest.SubItems(j).ForeColor = src.SubItems(j).ForeColor
+            Next
+        Next
+        SPS_P_ListView.EndUpdate()
+        
+        ' Update column headers to show sort direction (right-aligned arrow)
+        For i As Integer = 0 To SPS_P_ListView.Columns.Count - 1
+            Dim header As String = SPS_P_ListView.Columns(i).Text
+            ' Remove any existing arrow from end
+            If header.EndsWith(" ▲") Then
+                header = header.Substring(0, header.Length - 2)
+            ElseIf header.EndsWith(" ▼") Then
+                header = header.Substring(0, header.Length - 2)
+            End If
+            If i = e.Column Then
+                SPS_P_ListView.Columns(i).Text = header & If(bln_SortAscending, " ▲", " ▼")
+            Else
+                SPS_P_ListView.Columns(i).Text = header
+            End If
+        Next
+    End Sub
+    
     'MenuStrip Subrutines
     Private Sub LoadToolStripMenuItem_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles LoadToolStripMenuItem.Click
         OpenFileDialog1.FileName = Path.GetFileName(s_SPS_P_ListFile_Path)
@@ -1577,6 +1714,7 @@ Public Class Form1
             Charge_SPS_P_ListView()
             File_Save.Enabled = False
             File_SaveAs.Enabled = False
+            SelectAll_CheckBox.Checked = False
         End If
     End Sub
     
@@ -1780,105 +1918,44 @@ Public Class Form1
     End Sub
     
     Private Sub ToolStrip_OpenInSPSBuilder_Click(sender As Object, e As EventArgs) Handles ToolStrip_OpenInSPSBuilder.Click
-        Dim item As ListViewItem
-        For Each item In SPS_P_ListView.SelectedItems
-            OpenInSPSBuilder(item.Index)
+        Dim indices As New List(Of Integer)
+        For Each item As ListViewItem In SPS_P_ListView.SelectedItems
+            indices.Add(item.Index)
         Next
+        OpenMultipleInSPSBuilder(indices)
     End Sub
-    
-    Private Sub OpenInSPSBuilder(ByVal _SPS_order As Integer)
-        Dim s_SPSName As String = Me.SPS_P_ListView.Items(_SPS_order).SubItems(c_SPS_Name).Text
-        Dim suitePath As String = CType(Me.SPS_P_ListView.Items(_SPS_order).Tag, String)
-        Dim tmpFolder As String = Path.Combine(s_SyMenuSuite_Path, "_Trash", "_TmpPAT")
-        Dim spsBuilderExe As String = Path.Combine(s_SyMenuSuite_Path, "SPS_Builder_sps", "SPSBuilder.exe")
-        Dim cachePath As String = Path.Combine(suitePath, "_Cache")
-        Dim tmpSpsFile As String = ""
-        
-        ' Create temp folder under SyMenuSuite (where SPSBuilder lives)
-        If Not IO.Directory.Exists(tmpFolder) Then IO.Directory.CreateDirectory(tmpFolder)
-        
-        If Not Directory.Exists(cachePath) Then
-            ShowThemedMessageBox("Cache folder not found:" & vbCrLf & cachePath,
-                            "Folder not found", MessageBoxButtons.OK, MessageBoxIcon.Error)
+
+    Private Sub ToolStrip_OpenCheckedSPS_Click(sender As Object, e As EventArgs) Handles ToolStrip_OpenCheckedSPS.Click
+        ' Adjust this to set the maximum number of SPS files to open at once:
+        Dim maxOpen As Integer = 20
+
+        If SPS_P_ListView.CheckedItems.Count = 0 Then
+            ShowThemedMessageBox("No items are checked.", "Open checked SPS", MessageBoxButtons.OK, MessageBoxIcon.Information)
             Return
         End If
-        
-        Dim s_fileEntries As String() = Directory.GetFiles(cachePath)
-        
-        ' First: check loose .sps files by reading their ProgramName
-        For Each s_fileName In s_fileEntries
-            Dim thisFile As System.IO.FileInfo = My.Computer.FileSystem.GetFileInfo(s_fileName)
-            If thisFile.Extension = ".sps" Then
-                Try
-                    Dim spsContent As String = File.ReadAllText(s_fileName, Encoding.UTF8)
-                    Dim progName As String = S_GetsNBlockFromText(spsContent, "<ProgramName>", "</ProgramName>", 1)
-                    If progName = s_SPSName Then
-                        tmpSpsFile = Path.Combine(tmpFolder, thisFile.Name)
-                        IO.File.Copy(s_fileName, tmpSpsFile, True)
-                        Exit For
-                    End If
-                Catch
-                    ' Skip unreadable files
-                End Try
-            End If
+
+        If SPS_P_ListView.CheckedItems.Count > maxOpen Then
+            Dim result As DialogResult = ShowThemedMessageBox(
+                "You have " & SPS_P_ListView.CheckedItems.Count & " items checked." & vbCrLf &
+                "Only the first " & maxOpen & " will be opened to avoid performance issues." & vbCrLf & vbCrLf &
+                "Continue?", "Open checked SPS", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
+            If result = DialogResult.No Then Return
+        End If
+
+        Dim indices As New List(Of Integer)
+        Dim count As Integer = 0
+        For Each item As ListViewItem In SPS_P_ListView.CheckedItems
+            If count >= maxOpen Then Exit For
+            indices.Add(item.Index)
+            count += 1
         Next
-        
-        ' Second: if not found as loose file, try from already-extracted or zip files
-        If tmpSpsFile = "" Then
-            ' Check if temp folder already has extracted .sps files
-            If Directory.Exists(tmpFolder) Then
-                For Each extractedFile In Directory.GetFiles(tmpFolder, "*.sps")
-                    Try
-                        Dim spsContent As String = File.ReadAllText(extractedFile, Encoding.UTF8)
-                        Dim progName As String = S_GetsNBlockFromText(spsContent, "<ProgramName>", "</ProgramName>", 1)
-                        If progName = s_SPSName Then
-                            tmpSpsFile = extractedFile
-                            Exit For
-                        End If
-                    Catch
-                    End Try
-                Next
-            End If
-            
-            ' Only extract from zips if still not found
-            If tmpSpsFile = "" Then
-                Dim shellType As Type = Type.GetTypeFromProgID("Shell.Application", True)
-                Dim shellObj As Object = Activator.CreateInstance(shellType)
-                For Each s_fileName In s_fileEntries
-                    Dim thisFile As System.IO.FileInfo = My.Computer.FileSystem.GetFileInfo(s_fileName)
-                    If thisFile.Extension = ".zip" Then
-                        Dim outputFolder As Object = shellType.InvokeMember("NameSpace", BindingFlags.InvokeMethod, Nothing, shellObj, New [Object]() {tmpFolder})
-                        Dim inputZipFile As Object = shellType.InvokeMember("NameSpace", BindingFlags.InvokeMethod, Nothing, shellObj, New [Object]() {thisFile.FullName})
-                        outputFolder.CopyHere((inputZipFile.Items), 4)
-                    End If
-                Next
-                ' Search the newly extracted files
-                If Directory.Exists(tmpFolder) Then
-                    For Each extractedFile In Directory.GetFiles(tmpFolder, "*.sps")
-                        Try
-                            Dim spsContent As String = File.ReadAllText(extractedFile, Encoding.UTF8)
-                            Dim progName As String = S_GetsNBlockFromText(spsContent, "<ProgramName>", "</ProgramName>", 1)
-                            If progName = s_SPSName Then
-                                tmpSpsFile = extractedFile
-                                Exit For
-                            End If
-                        Catch
-                        End Try
-                    Next
-                End If
-            End If
-        End If
-                
-        ' Check we found the file
-        If tmpSpsFile = "" OrElse Not IO.File.Exists(tmpSpsFile) Then
-            ShowThemedMessageBox("Could not find the SPS file for:" & vbCrLf &
-                            s_SPSName & vbCrLf & vbCrLf &
-                            "Searched in: " & cachePath,
-                            "SPS file not found", MessageBoxButtons.OK, MessageBoxIcon.Error)
-            Return
-        End If
-        
-        ' Check SPSBuilder exists (always in SyMenuSuite)
+        OpenMultipleInSPSBuilder(indices)
+    End Sub
+
+    Private Sub OpenMultipleInSPSBuilder(ByVal indices As List(Of Integer))
+        If indices.Count = 0 Then Return
+
+        Dim spsBuilderExe As String = Path.Combine(s_SyMenuSuite_Path, "SPS_Builder_sps", "SPSBuilder.exe")
         If Not IO.File.Exists(spsBuilderExe) Then
             ShowThemedMessageBox("SPS Builder not found at:" & vbCrLf &
                             spsBuilderExe & vbCrLf & vbCrLf &
@@ -1887,21 +1964,143 @@ Public Class Form1
                             MessageBoxButtons.OK, MessageBoxIcon.Error)
             Return
         End If
-        
-        Dim p_SPSBuilder As New Process()
-        Try
-            p_SPSBuilder.StartInfo.FileName = spsBuilderExe
-            p_SPSBuilder.StartInfo.WorkingDirectory = Path.GetDirectoryName(spsBuilderExe)
-            p_SPSBuilder.StartInfo.Arguments = """" & tmpSpsFile & """"
-            p_SPSBuilder.StartInfo.UseShellExecute = True
-            p_SPSBuilder.StartInfo.WindowStyle = ProcessWindowStyle.Normal
-            p_SPSBuilder.Start()
-        Catch ex As Exception
-            Beep()
-            ShowThemedMessageBox("SPS Builder launch failed:" & vbCrLf & ex.Message, "SPS Builder Error")
-        End Try
-    End Sub
 
+        Dim tmpFolder As String = Path.Combine(s_SyMenuSuite_Path, "_Trash", "_TmpPAT")
+        If Not IO.Directory.Exists(tmpFolder) Then IO.Directory.CreateDirectory(tmpFolder)
+
+        ' Build a list of what we need to find: (index, SPSName, suitePath, found file path)
+        Dim needed As New List(Of Tuple(Of Integer, String, String, String))
+        For Each idx As Integer In indices
+            Dim s_SPSName As String = Me.SPS_P_ListView.Items(idx).SubItems(c_SPS_Name).Text
+            Dim suitePath As String = CType(Me.SPS_P_ListView.Items(idx).Tag, String)
+            needed.Add(Tuple.Create(idx, s_SPSName, suitePath, ""))
+        Next
+
+        ' Step 1: Build index of all existing files in temp folder
+        Dim tmpFiles As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        If Directory.Exists(tmpFolder) Then
+            For Each f As String In Directory.GetFiles(tmpFolder, "*.sps")
+                Dim name As String = Path.GetFileName(f)
+                If Not tmpFiles.ContainsKey(name) Then
+                    tmpFiles.Add(name, f)
+                End If
+            Next
+        End If
+
+        ' Step 2: Find each SPS by filename
+        For i As Integer = 0 To needed.Count - 1
+            Dim item = needed(i)
+            Dim expectedFileName As String = item.Item2.Replace(" ", "_") & ".sps"
+
+            ' First check temp folder index
+            If tmpFiles.ContainsKey(expectedFileName) Then
+                needed(i) = Tuple.Create(item.Item1, item.Item2, item.Item3, tmpFiles(expectedFileName))
+                Continue For
+            End If
+
+            ' Then check loose .sps in _Cache folder
+            Dim cachePath As String = Path.Combine(item.Item3, "_Cache")
+            If Directory.Exists(cachePath) Then
+                Dim cacheFile As String = Path.Combine(cachePath, expectedFileName)
+                If IO.File.Exists(cacheFile) Then
+                    Dim destFile As String = Path.Combine(tmpFolder, expectedFileName)
+                    IO.File.Copy(cacheFile, destFile, True)
+                    needed(i) = Tuple.Create(item.Item1, item.Item2, item.Item3, destFile)
+                End If
+            End If
+        Next
+
+        ' Step 3: Extract ALL zips from all needed _Cache folders (once per suite)
+        Dim stillMissing As Boolean = needed.Any(Function(n) n.Item4 = "")
+        Dim suitesChecked As New HashSet(Of String)
+        If stillMissing Then
+            Dim shellType As Type = Type.GetTypeFromProgID("Shell.Application", True)
+            Dim shellObj As Object = Activator.CreateInstance(shellType)
+            Dim zipCount As Integer = 0
+
+            For Each item In needed
+                If item.Item4 <> "" Then Continue For ' Already found
+                Dim cachePath As String = Path.Combine(item.Item3, "_Cache")
+                If suitesChecked.Contains(cachePath) Then Continue For
+                suitesChecked.Add(cachePath)
+
+                If Not Directory.Exists(cachePath) Then Continue For
+                For Each s_fileName In Directory.GetFiles(cachePath, "*.zip")
+                    Dim outputFolder As Object = shellType.InvokeMember("NameSpace", BindingFlags.InvokeMethod, Nothing, shellObj, New [Object]() {tmpFolder})
+                    Dim inputZipFile As Object = shellType.InvokeMember("NameSpace", BindingFlags.InvokeMethod, Nothing, shellObj, New [Object]() {s_fileName})
+                    outputFolder.CopyHere((inputZipFile.Items), 4)
+                    zipCount += 1
+                Next
+            Next
+
+            ' Wait for async CopyHere to finish
+            If zipCount > 0 Then
+                System.Threading.Thread.Sleep(1000)
+                ' Wait until no new files appear for 2 seconds
+                Dim lastCount As Integer = 0
+                Dim stableTime As Integer = 0
+                While stableTime < 2000
+                    Dim currentCount As Integer = Directory.GetFiles(tmpFolder, "*.sps").Length
+                    If currentCount = lastCount Then
+                        stableTime += 500
+                    Else
+                        stableTime = 0
+                        lastCount = currentCount
+                    End If
+                    System.Threading.Thread.Sleep(500)
+                    Application.DoEvents()
+                End While
+            End If
+
+            ' Now search extracted files for still-missing items
+            For i As Integer = 0 To needed.Count - 1
+                Dim item = needed(i)
+                If item.Item4 <> "" Then Continue For
+                For Each extractedFile In Directory.GetFiles(tmpFolder, "*.sps")
+                    Try
+                        Dim spsContent As String = File.ReadAllText(extractedFile, Encoding.UTF8)
+                        Dim progName As String = S_GetsNBlockFromText(spsContent, "<ProgramName>", "</ProgramName>", 1)
+                        If progName = item.Item2 Then
+                            needed(i) = Tuple.Create(item.Item1, item.Item2, item.Item3, extractedFile)
+                            Exit For
+                        End If
+                    Catch
+                    End Try
+                Next
+            Next
+        End If
+
+        ' Step 4: Launch SPSBuilder for each found file (with delay between launches)
+        Dim failed As New List(Of String)
+        For Each item In needed
+            If item.Item4 = "" OrElse Not IO.File.Exists(item.Item4) Then
+                failed.Add(item.Item2)
+                Continue For
+            End If
+            Try
+                Dim p_SPSBuilder As New Process()
+                p_SPSBuilder.StartInfo.FileName = spsBuilderExe
+                p_SPSBuilder.StartInfo.WorkingDirectory = Path.GetDirectoryName(spsBuilderExe)
+                p_SPSBuilder.StartInfo.Arguments = """" & item.Item4 & """"
+                p_SPSBuilder.StartInfo.UseShellExecute = True
+                p_SPSBuilder.StartInfo.WindowStyle = ProcessWindowStyle.Normal
+                p_SPSBuilder.Start()
+                p_SPSBuilder.WaitForInputIdle()
+            Catch ex As Exception
+                failed.Add(item.Item2 & " (" & ex.Message & ")")
+            End Try
+            ' Adjust time if it doesnt open all SPSBuilder windows:
+            System.Threading.Thread.Sleep(70)
+            Application.DoEvents()
+        Next
+
+        If failed.Count > 0 Then
+            ShowThemedMessageBox("Could not open " & failed.Count & " SPS file(s):" & vbCrLf & vbCrLf &
+                String.Join(vbCrLf, failed),
+                "Open in SPS Builder", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        End If
+    End Sub
+    
     Private Sub ToolStrip_RefreshSelectedHash_Click(sender As Object, e As EventArgs) Handles ToolStrip_RefreshSelectedHash.Click
         Dim item As ListViewItem
         For Each item In SPS_P_ListView.SelectedItems
@@ -2148,7 +2347,7 @@ Public Class Form1
                         If result("LatestVersion") = data("Version") Then
                             SPS_P_ListView.Items(idx).SubItems(c_LatestVersion).BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeGreen, m_LightModeGreen)
                         Else
-                            SPS_P_ListView.Items(idx).SubItems(c_LatestVersion).BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeRed, m_LightModeRed)
+                            SPS_P_ListView.Items(idx).SubItems(c_LatestVersion).BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeOrange, m_LightModeOrange)
                         End If
                     Else
                         SPS_P_ListView.Items(idx).SubItems(c_LatestVersion).Text = ""
@@ -2161,7 +2360,7 @@ Public Class Form1
                         Beep()
                         SPS_P_ListView.Items(idx).UseItemStyleForSubItems = False
                         SPS_P_ListView.Items(idx).SubItems(c_TrackURL).BackColor = If(DarkModeToolStripMenuItem.Checked, Color.Empty, Color.White)
-                        SPS_P_ListView.Items(idx).SubItems(c_TrackBlockHash).BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeRed, m_LightModeRed)
+                        SPS_P_ListView.Items(idx).SubItems(c_TrackBlockHash).BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeOrange, m_LightModeOrange)
                         SPS_P_ListFile_Name.BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeRed, m_LightModeRed)
                         SPS_P_ListFile_Name.Refresh()
                         If Open_Browser.Checked Then
@@ -2193,7 +2392,7 @@ Public Class Form1
                     Long.TryParse(data("DownloadSizeKb"), localSizeKb)
                     If remoteSizeKb = 0 Then
                         SPS_P_ListView.Items(idx).UseItemStyleForSubItems = False
-                        SPS_P_ListView.Items(idx).SubItems(c_DownloadSizeKb).BackColor = Color.Yellow
+                        SPS_P_ListView.Items(idx).SubItems(c_DownloadSizeKb).BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeRed, m_LightModeRed)
                     ElseIf localSizeKb > 0 AndAlso 0.1 > (Math.Abs(localSizeKb - remoteSizeKb) / remoteSizeKb) Then
                         SPS_P_ListView.Items(idx).UseItemStyleForSubItems = False
                         SPS_P_ListView.Items(idx).SubItems(c_DownloadUrl).BackColor = If(DarkModeToolStripMenuItem.Checked, Color.Empty, Color.White)
@@ -2202,7 +2401,7 @@ Public Class Form1
                         Beep()
                         SPS_P_ListView.Items(idx).UseItemStyleForSubItems = False
                         SPS_P_ListView.Items(idx).SubItems(c_DownloadUrl).BackColor = If(DarkModeToolStripMenuItem.Checked, Color.Empty, Color.White)
-                        SPS_P_ListView.Items(idx).SubItems(c_DownloadSizeKb).BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeRed, m_LightModeRed)
+                        SPS_P_ListView.Items(idx).SubItems(c_DownloadSizeKb).BackColor = If(DarkModeToolStripMenuItem.Checked, m_DarkModeOrange, m_LightModeOrange)
                     End If
                 Else
                     Beep()
@@ -2311,7 +2510,11 @@ Public Class Form1
         ' RichTextBox
         RichTextBox1.BackColor = m_DarkModeBackground45
         RichTextBox1.ForeColor = m_RichText
-                        
+        Toggle_HTMLView.BackColor = m_DarkModeBackground45
+        Toggle_HTMLView.ForeColor = Color.White
+        Toggle_HTMLView.FlatStyle = FlatStyle.Flat
+        Toggle_HTMLView.FlatAppearance.BorderColor = m_BorderColor
+        
         ' TextBoxes
         Track_URL.BackColor = m_DarkModeBackground45
         Track_URL.ForeColor = Color.White
@@ -2491,7 +2694,10 @@ Public Class Form1
         ' RichTextBox
         RichTextBox1.BackColor = Color.White
         RichTextBox1.ForeColor = Color.Blue
-                        
+        Toggle_HTMLView.BackColor = Color.FromKnownColor(KnownColor.Control)
+        Toggle_HTMLView.ForeColor = Color.Black
+        Toggle_HTMLView.FlatStyle = FlatStyle.Standard
+        
         ' TextBoxes
         Track_URL.BackColor = Color.White
         Track_URL.ForeColor = Color.Black
@@ -2633,11 +2839,27 @@ Class ListViewItemComparer
 
     Public Function Compare(ByVal x As Object, ByVal y As Object) As Integer _
     Implements IComparer.Compare
-        If bln_AscOrder Then
-            Return [String].Compare(CType(x, ListViewItem).SubItems(i_col).Text, CType(y, ListViewItem).SubItems(i_col).Text)
+        Dim textX As String = CType(x, ListViewItem).SubItems(i_col).Text
+        Dim textY As String = CType(y, ListViewItem).SubItems(i_col).Text
+        Dim result As Integer
+
+        ' Try numeric comparison first
+        Dim numX As Double, numY As Double
+        If Double.TryParse(textX, numX) AndAlso Double.TryParse(textY, numY) Then
+            result = numX.CompareTo(numY)
+        ElseIf DateTime.TryParse(textX, Nothing) AndAlso DateTime.TryParse(textY, Nothing) Then
+            Dim dateX As DateTime = DateTime.Parse(textX)
+            Dim dateY As DateTime = DateTime.Parse(textY)
+            result = dateX.CompareTo(dateY)
         Else
-            Return [String].Compare(CType(y, ListViewItem).SubItems(i_col).Text, CType(x, ListViewItem).SubItems(i_col).Text)
+            result = String.Compare(textX, textY)
         End If
+
+        If Not bln_AscOrder Then
+            result = -result
+        End If
+
+        Return result
     End Function
 End Class
 
@@ -2693,11 +2915,12 @@ Public Class HelpForm
         Dim textColor As String = If(darkMode, "\red255\green255\blue255", "\red0\green0\blue0")
         Dim greenColor As String = If(darkMode, "\red100\green200\blue100", "\red0\green150\blue0")
         Dim redColor As String = If(darkMode, "\red255\green120\blue120", "\red200\green0\blue0")
+        Dim orangeColor As String = If(darkMode, "\red255\green180\blue50", "\red220\green140\blue0")
 
         Dim rtf As String =
             "{\rtf1\ansi\deff0" &
             "{\fonttbl{\f0 Segoe UI;}}" &
-            "{\colortbl ;" & titleColor & ";" & headingColor & ";" & textColor & ";" & greenColor & ";" & redColor & ";}" &
+            "{\colortbl ;" & titleColor & ";" & headingColor & ";" & textColor & ";" & greenColor & ";" & redColor & ";" & orangeColor & ";}" &
             "\viewkind4\uc1\f0\fs22" &
             "\cf1\b\fs28 SPS Published App Track x64\b0\fs22\par" &
             "\cf1\b\fs24 Quick Start Guide\b0\fs22\par" &
@@ -2731,9 +2954,24 @@ Public Class HelpForm
             "  \bullet  Use \b File > Restore Defaults\b0  to reset window size, position, and column layout.\par" &
             "  \bullet  All window settings are saved on \b Exit \b0. Settings related to PAT files, requires manual save.\par" &
             "\par" &
-            "\cf1\b\fs24 Credits\b0\fs22\par" &
-            "\cf3 Original code by VVV_Easy_SyMenu.\par" &
-            "\cf3 Updated to v6.x.x.x 64bit by sl23.\par" &
+            "\cf2\b Colour Guide\b0\cf3\par" &
+            "\cf3 After checking for updates, columns are colour coded:\par" &
+            "\par" &
+            "\tx2000\tx4100\tx5800" &
+            "\cf3\b Column\tab \cf5Red\tab \cf6Orange\tab \cf4Green\b0\par" &
+            "  \cf3 Track URL\tab Connection error.\tab \tab Connected OK.\par" &
+            "  \cf3 Track Block Hash\tab \tab Hash changed.\tab No change.\par" &
+            "  \cf3 Latest Version\tab \tab New version.\tab Version matches.\par" &
+            "  \cf3 Dwnld URL\tab Download failed.\tab \tab Download OK.\par" &
+            "  \cf3 Dwnld KB\tab Size unknown (0).\tab Size changed.\tab Size matches.\par" &
+            "\par" &
+            "\cf3\b Summary:\b0\par" &
+            "  \bullet  \cf5\b Red\b0\cf3  = Error (something failed or needs attention)\par" &
+            "  \bullet  \cf6\b Orange\b0\cf3  = Change detected (update available)\par" &            "  \bullet  \cf4\b Green\b0\cf3  = OK (no change, everything matches)\par" &
+            "\par" &
+            "\cf1\b\fs24 Credits\b0\par" &
+            "  \cf3 Original code by VVV_Easy_SyMenu.\par" &
+            "  \cf3 Updated to v6.x.x.x 64bit by sl23.\par" &
             "}"
 
         Return rtf
