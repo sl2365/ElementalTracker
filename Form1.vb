@@ -60,7 +60,6 @@ Public Class Form1
     Private i_SortColumn As Integer = -1
     Private bln_SortAscending As Boolean = True
     Private b_ShowRenderedHTML As Boolean = False
-    Private b_HorizontalLayout As Boolean = False
 
     REM Manage the correspondence between SPS_P_ListView column header and Subitem Info
     Public Const c_SPS_Name = 0
@@ -169,7 +168,7 @@ Public Class Form1
                 Me.Top = S_GetsNBlockFromText(s_ConfigPAT_text, "<Form1_y>", "</Form1_y>", 1)
                 Me.Width = S_GetsNBlockFromText(s_ConfigPAT_text, "<Form1_w>", "</Form1_w>", 1)
                 Me.Height = S_GetsNBlockFromText(s_ConfigPAT_text, "<Form1_h>", "</Form1_h>", 1)
-                Me.MinimumSize = New System.Drawing.Size(900, 550)
+                Me.MinimumSize = New System.Drawing.Size(900, 500)
                 Me.SplitContainer1.SplitterWidth = 5
             Catch ex As Exception
                 ShowThemedMessageBox("Error setting form size: " & ex.Message, "Config Error")
@@ -181,16 +180,6 @@ Public Class Form1
                 SplitContainer1.SplitterDistance = i_SplitterDist
             End If
             SplitContainer1.FixedPanel = FixedPanel.Panel2
-            
-            REM Restore SplitOrientation
-            Try
-                Dim orientValue As String = S_GetsNBlockFromText(s_ConfigPAT_text, "<SplitOrientation>", "</SplitOrientation>", 1)
-                If orientValue = "Horizontal" Then
-                    b_HorizontalLayout = True
-                End If
-            Catch ex As Exception
-                b_HorizontalLayout = False
-            End Try
             
             REM Principal Form text load
             SPS_P_ListFile_Name.BackColor = Color.Empty
@@ -247,10 +236,8 @@ Public Class Form1
                 ApplyLightMode()
             End Try
             
-            ' Apply layout orientation (after dark mode so theming is already set)
-            If b_HorizontalLayout Then
-                ApplyLayoutOrientation()
-            End If
+            REM Wire up ListView selection event to populate right pane
+            AddHandler SPS_P_ListView.ItemSelectionChanged, AddressOf SPS_P_ListView_ItemSelectionChanged
             
             REM Wire up RichTextBox context menu
             Me.RichTextBox1.ContextMenuStrip = Me.ContextMenuStrip2
@@ -332,15 +319,6 @@ Public Class Form1
                 Me.Help.Text = ""
             Catch ex As Exception
                 ShowThemedMessageBox("Error loading Help icon: " & ex.Message)
-            End Try
-            Try
-                Dim assembly As System.Reflection.Assembly = System.Reflection.Assembly.GetExecutingAssembly()
-                Dim img As Image = Image.FromStream(assembly.GetManifestResourceStream("SPSPublishedAppTrack.SplitHorizontal.png"))
-                Me.Toggle_SplitOrientation.Image = New Bitmap(img, New Size(20, 20))
-                Me.Toggle_SplitOrientation.ImageAlign = ContentAlignment.MiddleCenter
-                Me.Toggle_SplitOrientation.Text = ""
-            Catch ex As Exception
-                Me.Toggle_SplitOrientation.Text = "H/V"
             End Try
             Try
                 Dim assembly As System.Reflection.Assembly = System.Reflection.Assembly.GetExecutingAssembly()
@@ -1090,42 +1068,33 @@ Public Class Form1
     End Sub
     
     Private i_SavedSplitterDistance As Integer = 450
-    Private b_AdjustingSplitter As Boolean = False
+    Private i_MaxSplitterDistance As Integer = 250  ' Add this
 
     Private Sub Toggle_RightPane_Click(sender As Object, e As EventArgs) Handles Toggle_RightPane.Click
         If Not Me.SplitContainer1.Panel2Collapsed Then
             ' Hide panel and save position
             i_SavedSplitterDistance = Me.SplitContainer1.SplitterDistance
             Me.SplitContainer1.Panel2Collapsed = True
-            Me.SplitContainer1.IsSplitterFixed = True  ' Disable dragging
         Else
             ' Show panel and restore position
             Me.SplitContainer1.Panel2Collapsed = False
-            Try
-                Me.SplitContainer1.SplitterDistance = i_SavedSplitterDistance
-            Catch ex As ArgumentOutOfRangeException
-            End Try
-            Me.SplitContainer1.IsSplitterFixed = False  ' Enable dragging
+            Me.SplitContainer1.SplitterDistance = i_SavedSplitterDistance
         End If
     End Sub
 
     Private Sub SplitContainer1_SplitterMoved(sender As Object, e As SplitterEventArgs) Handles SplitContainer1.SplitterMoved
-        ' Don't apply limits if panel is hidden or if we're already adjusting (prevent re-entry)
-        If Me.SplitContainer1.Panel2Collapsed Then Exit Sub
-        If b_AdjustingSplitter Then Exit Sub
-
+        ' Don't apply limits if panel is hidden
+        If Me.SplitContainer1.Panel2Collapsed Then
+            Exit Sub
+        End If
+        
         Dim minDistance As Integer = 200
-        Dim containerSize As Integer = If(b_HorizontalLayout, Me.SplitContainer1.Height, Me.SplitContainer1.Width)
-        Dim maxDistance As Integer = containerSize - 200
-
-        If Me.SplitContainer1.SplitterDistance < minDistance OrElse Me.SplitContainer1.SplitterDistance > maxDistance Then
-            b_AdjustingSplitter = True
-            Try
-                Me.SplitContainer1.SplitterDistance = Math.Max(minDistance, Math.Min(maxDistance, Me.SplitContainer1.SplitterDistance))
-            Catch ex As ArgumentOutOfRangeException
-            Finally
-                b_AdjustingSplitter = False
-            End Try
+        Dim maxDistance As Integer = Me.SplitContainer1.Width - i_MaxSplitterDistance
+        
+        If Me.SplitContainer1.SplitterDistance < minDistance Then
+            Me.SplitContainer1.SplitterDistance = minDistance
+        ElseIf Me.SplitContainer1.SplitterDistance > maxDistance Then
+            Me.SplitContainer1.SplitterDistance = maxDistance
         End If
     End Sub
 
@@ -1149,283 +1118,6 @@ Public Class Form1
                 HighLigth_TrackBlock_in_RichTextBox(Start_String.Text, Stop_String.Text)
             End If
         End If
-    End Sub
-
-    Private Sub Toggle_SplitOrientation_Click(sender As Object, e As EventArgs) Handles Toggle_SplitOrientation.Click
-        b_HorizontalLayout = Not b_HorizontalLayout
-        ApplyLayoutOrientation()
-    End Sub
-
-    Private Sub ApplyLayoutOrientation()
-        ' Step 1: Change SplitContainer orientation and splitter distance, then immediately
-        ' resume layout so Panel2 gets its correct new dimensions before we record anchor margins.
-        Me.SplitContainer1.SuspendLayout()
-        If b_HorizontalLayout Then
-            Me.SplitContainer1.Orientation = Orientation.Horizontal
-            Dim newDist As Integer = CInt(Me.SplitContainer1.Height * 0.5)
-            If newDist < 200 Then newDist = 200
-            Try
-                Me.SplitContainer1.SplitterDistance = newDist
-            Catch ex As ArgumentOutOfRangeException
-            End Try
-        Else
-            Me.SplitContainer1.Orientation = Orientation.Vertical
-            Dim restoreDist As Integer = 450
-            If restoreDist < Me.SplitContainer1.Panel1MinSize Then restoreDist = Me.SplitContainer1.Panel1MinSize
-            Dim maxAllowed As Integer = Me.SplitContainer1.Width - Me.SplitContainer1.Panel2MinSize - Me.SplitContainer1.SplitterWidth
-            If restoreDist > maxAllowed Then restoreDist = maxAllowed
-            Try
-                Me.SplitContainer1.SplitterDistance = restoreDist
-            Catch ex As ArgumentOutOfRangeException
-            End Try
-        End If
-        Me.SplitContainer1.ResumeLayout(True)
-
-        ' Step 2: Now Panel2 has its correct new dimensions — reposition controls with accurate anchor margins.
-        Me.SplitContainer1.Panel2.SuspendLayout()
-
-        If b_HorizontalLayout Then
-            ' Horizontal layout: left column (~400px wide) for labels/fields, RichTextBox fills the right.
-            ' Labels use the same 55px height as vertical/Designer mode.
-            ' Textbox and button y-offsets within each section match the Designer relative positions.
-
-            ' Label1 - Track URL label (same 55px height as Designer)
-            Label1.Anchor = AnchorStyles.None
-            Label1.Location = New Point(0, 0)
-            Label1.Size = New Size(395, 55)
-            Label1.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Track_URL textbox (inside Label1, y-offset = 22 matches Designer)
-            Track_URL.Anchor = AnchorStyles.None
-            Track_URL.Location = New Point(5, 22)
-            Track_URL.Size = New Size(260, 27)
-            Track_URL.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Browser_TrackURL button (inside Label1, y-offset = 8 matches Designer)
-            Browser_TrackURL.Anchor = AnchorStyles.None
-            Browser_TrackURL.Location = New Point(268, 8)
-            Browser_TrackURL.Size = New Size(40, 40)
-            Browser_TrackURL.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Download_Track_URL button
-            Download_Track_URL.Anchor = AnchorStyles.None
-            Download_Track_URL.Location = New Point(310, 8)
-            Download_Track_URL.Size = New Size(40, 40)
-            Download_Track_URL.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Save_Track button
-            Save_Track.Anchor = AnchorStyles.None
-            Save_Track.Location = New Point(352, 8)
-            Save_Track.Size = New Size(40, 40)
-            Save_Track.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Label2 - Start String label (y=60 matches Designer section start)
-            Label2.Anchor = AnchorStyles.None
-            Label2.Location = New Point(0, 60)
-            Label2.Size = New Size(395, 55)
-            Label2.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Start_String textbox (inside Label2, y-offset = 22 matches Designer)
-            Start_String.Anchor = AnchorStyles.None
-            Start_String.Location = New Point(5, 82)
-            Start_String.Size = New Size(344, 27)
-            Start_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Go_To_Start_String button (inside Label2, y-offset = 8 matches Designer)
-            Go_To_Start_String.Anchor = AnchorStyles.None
-            Go_To_Start_String.Location = New Point(352, 68)
-            Go_To_Start_String.Size = New Size(40, 40)
-            Go_To_Start_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Label3 - Stop String label (y=120 matches Designer section start)
-            Label3.Anchor = AnchorStyles.None
-            Label3.Location = New Point(0, 120)
-            Label3.Size = New Size(395, 55)
-            Label3.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Stop_String textbox (inside Label3, y-offset = 23 matches Designer)
-            Stop_String.Anchor = AnchorStyles.None
-            Stop_String.Location = New Point(5, 143)
-            Stop_String.Size = New Size(344, 27)
-            Stop_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Go_To_Stop_String button (inside Label3, y-offset = 8 matches Designer)
-            Go_To_Stop_String.Anchor = AnchorStyles.None
-            Go_To_Stop_String.Location = New Point(352, 128)
-            Go_To_Stop_String.Size = New Size(40, 40)
-            Go_To_Stop_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Label4 - Search label (y=180: after 120+55+5 gap, same spacing as Designer)
-            Label4.Anchor = AnchorStyles.None
-            Label4.Location = New Point(0, 180)
-            Label4.Size = New Size(395, 55)
-            Label4.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Label_FindCount (inside Label4, y-offset = 2 matches Designer: 637-635=2)
-            Label_FindCount.Anchor = AnchorStyles.None
-            Label_FindCount.Location = New Point(5, 182)
-            Label_FindCount.Size = New Size(388, 18)
-            Label_FindCount.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Find_String textbox (inside Label4, y-offset = 23 matches Designer)
-            Find_String.Anchor = AnchorStyles.None
-            Find_String.Location = New Point(5, 203)
-            Find_String.Size = New Size(180, 27)
-            Find_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Search_From_Top button (inside Label4, y-offset = 8 matches Designer)
-            Search_From_Top.Anchor = AnchorStyles.None
-            Search_From_Top.Location = New Point(188, 188)
-            Search_From_Top.Size = New Size(40, 40)
-            Search_From_Top.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Search_From_CARET button
-            Search_From_CARET.Anchor = AnchorStyles.None
-            Search_From_CARET.Location = New Point(230, 188)
-            Search_From_CARET.Size = New Size(40, 40)
-            Search_From_CARET.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Reverse_From_CARET button
-            Reverse_From_CARET.Anchor = AnchorStyles.None
-            Reverse_From_CARET.Location = New Point(272, 188)
-            Reverse_From_CARET.Size = New Size(40, 40)
-            Reverse_From_CARET.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' Reverse_From_BOTTOM button
-            Reverse_From_BOTTOM.Anchor = AnchorStyles.None
-            Reverse_From_BOTTOM.Location = New Point(314, 188)
-            Reverse_From_BOTTOM.Size = New Size(40, 40)
-            Reverse_From_BOTTOM.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-
-            ' RichTextBox1 fills the right side
-            RichTextBox1.Anchor = AnchorStyles.None
-            RichTextBox1.Location = New Point(400, 0)
-            RichTextBox1.Size = New Size(Math.Max(100, Me.SplitContainer1.Panel2.ClientSize.Width - 405), Me.SplitContainer1.Panel2.ClientSize.Height)
-            RichTextBox1.Anchor = AnchorStyles.Top Or AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
-
-        Else
-            ' Vertical layout: exact Designer values — Panel2 is the right pane with correct height.
-
-            ' Label1 - Track URL label
-            Label1.Anchor = AnchorStyles.None
-            Label1.Location = New Point(5, 0)
-            Label1.Size = New Size(984, 55)
-            Label1.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' Track_URL textbox
-            Track_URL.Anchor = AnchorStyles.None
-            Track_URL.Location = New Point(15, 22)
-            Track_URL.Size = New Size(825, 27)
-            Track_URL.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' Browser_TrackURL button
-            Browser_TrackURL.Anchor = AnchorStyles.None
-            Browser_TrackURL.Location = New Point(849, 8)
-            Browser_TrackURL.Size = New Size(40, 40)
-            Browser_TrackURL.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-
-            ' Download_Track_URL button
-            Download_Track_URL.Anchor = AnchorStyles.None
-            Download_Track_URL.Location = New Point(895, 8)
-            Download_Track_URL.Size = New Size(40, 40)
-            Download_Track_URL.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-
-            ' Save_Track button
-            Save_Track.Anchor = AnchorStyles.None
-            Save_Track.Location = New Point(940, 8)
-            Save_Track.Size = New Size(40, 40)
-            Save_Track.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-
-            ' Label2 - Start String label
-            Label2.Anchor = AnchorStyles.None
-            Label2.Location = New Point(5, 60)
-            Label2.Size = New Size(984, 55)
-            Label2.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' Start_String textbox
-            Start_String.Anchor = AnchorStyles.None
-            Start_String.Location = New Point(15, 82)
-            Start_String.Size = New Size(915, 27)
-            Start_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' Go_To_Start_String button
-            Go_To_Start_String.Anchor = AnchorStyles.None
-            Go_To_Start_String.Location = New Point(940, 68)
-            Go_To_Start_String.Size = New Size(40, 40)
-            Go_To_Start_String.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-
-            ' Label3 - Stop String label
-            Label3.Anchor = AnchorStyles.None
-            Label3.Location = New Point(5, 120)
-            Label3.Size = New Size(984, 55)
-            Label3.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' Stop_String textbox
-            Stop_String.Anchor = AnchorStyles.None
-            Stop_String.Location = New Point(15, 143)
-            Stop_String.Size = New Size(915, 27)
-            Stop_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' Go_To_Stop_String button
-            Go_To_Stop_String.Anchor = AnchorStyles.None
-            Go_To_Stop_String.Location = New Point(940, 128)
-            Go_To_Stop_String.Size = New Size(40, 40)
-            Go_To_Stop_String.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-
-            ' Label4 - Search label (bottom-anchored)
-            Label4.Anchor = AnchorStyles.None
-            Label4.Location = New Point(5, 635)
-            Label4.Size = New Size(984, 55)
-            Label4.Anchor = AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' Find_String textbox (bottom-anchored)
-            Find_String.Anchor = AnchorStyles.None
-            Find_String.Location = New Point(15, 658)
-            Find_String.Size = New Size(780, 27)
-            Find_String.Anchor = AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' Search_From_Top button (bottom-anchored)
-            Search_From_Top.Anchor = AnchorStyles.None
-            Search_From_Top.Location = New Point(804, 643)
-            Search_From_Top.Size = New Size(40, 40)
-            Search_From_Top.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
-
-            ' Search_From_CARET button (bottom-anchored)
-            Search_From_CARET.Anchor = AnchorStyles.None
-            Search_From_CARET.Location = New Point(849, 643)
-            Search_From_CARET.Size = New Size(40, 40)
-            Search_From_CARET.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
-
-            ' Reverse_From_CARET button (bottom-anchored)
-            Reverse_From_CARET.Anchor = AnchorStyles.None
-            Reverse_From_CARET.Location = New Point(895, 643)
-            Reverse_From_CARET.Size = New Size(40, 40)
-            Reverse_From_CARET.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
-
-            ' Reverse_From_BOTTOM button (bottom-anchored)
-            Reverse_From_BOTTOM.Anchor = AnchorStyles.None
-            Reverse_From_BOTTOM.Location = New Point(940, 643)
-            Reverse_From_BOTTOM.Size = New Size(40, 40)
-            Reverse_From_BOTTOM.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
-
-            ' Label_FindCount (bottom-anchored)
-            Label_FindCount.Anchor = AnchorStyles.None
-            Label_FindCount.Location = New Point(62, 637)
-            Label_FindCount.Size = New Size(738, 18)
-            Label_FindCount.Anchor = AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
-
-            ' RichTextBox1 fills the center (top+bottom+left+right anchored)
-            RichTextBox1.Anchor = AnchorStyles.None
-            RichTextBox1.Location = New Point(5, 185)
-            RichTextBox1.Size = New Size(984, 440)
-            RichTextBox1.Anchor = AnchorStyles.Top Or AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
-
-        End If
-
-        Me.SplitContainer1.Panel2.ResumeLayout(False)
-        Me.SplitContainer1.Panel2.PerformLayout()
-        Me.SplitContainer1.ResumeLayout(False)
-        Me.SplitContainer1.PerformLayout()
     End Sub
     
     Private Function StripHtmlTags(html As String) As String
@@ -1866,7 +1558,8 @@ Public Class Form1
             Select Case result
                 Case DialogResult.Yes
                     SaveToolStripMenuItem_Click(sender, e)
-                    e.Cancel = False
+                    e.Cancel = True
+                    Return
                 Case DialogResult.No
                     e.Cancel = False
                 Case DialogResult.Cancel
@@ -1907,7 +1600,6 @@ Public Class Form1
             End If
             s_ConfigPAT_text &= "<SyMenuSuitePath>" & s_SyMenuSuite_Path & "</SyMenuSuitePath>" & vbCrLf
             s_ConfigPAT_text &= "<DarkMode>" & DarkModeToolStripMenuItem.Checked.ToString() & "</DarkMode>" & vbCrLf
-            s_ConfigPAT_text &= "<SplitOrientation>" & If(b_HorizontalLayout, "Horizontal", "Vertical") & "</SplitOrientation>" & vbCrLf
             File.WriteAllText(s_ConfigPAT_FilePath, s_ConfigPAT_text, Encoding.UTF8)
         End If
 
@@ -2128,9 +1820,7 @@ Public Class Form1
             Next
             s_ConfigPAT_text &= "<ColumnOrder>" & colOrder & "</ColumnOrder>" & vbCrLf
         End If
-        s_ConfigPAT_text &= "<DarkMode>" & DarkModeToolStripMenuItem.Checked.ToString() & "</DarkMode>" & vbCrLf
-        s_ConfigPAT_text &= "<SplitOrientation>" & If(b_HorizontalLayout, "Horizontal", "Vertical") & "</SplitOrientation>" & vbCrLf
-        'Write the file
+        s_ConfigPAT_text &= "<DarkMode>" & DarkModeToolStripMenuItem.Checked.ToString() & "</DarkMode>" & vbCrLf        'Write the file
         File.WriteAllText(s_ConfigPAT_FilePath, s_ConfigPAT_text, Encoding.UTF8)
         ShowThemedMessageBox("Configuration saved!", "Save Config", MessageBoxButtons.OK, MessageBoxIcon.Information)
     End Sub
@@ -2200,11 +1890,6 @@ Public Class Form1
         ViewSPSModificationDateToolStripMenuItem.Checked = True
         ViewSPSPublisherNameToolStripMenuItem.Checked = True
         ViewSuiteNameToolStripMenuItem.Checked = True
-        ' Reset orientation to vertical
-        If b_HorizontalLayout Then
-            b_HorizontalLayout = False
-            ApplyLayoutOrientation()
-        End If
     End Sub
 
     'ListView ToolStrip Subroutines
@@ -2887,11 +2572,6 @@ Public Class Form1
         Toggle_RightPane.FlatStyle = FlatStyle.Flat
         Toggle_RightPane.FlatAppearance.BorderColor = m_BorderColor
         
-        Toggle_SplitOrientation.BackColor = m_DarkModeBackground45
-        Toggle_SplitOrientation.ForeColor = Color.White
-        Toggle_SplitOrientation.FlatStyle = FlatStyle.Flat
-        Toggle_SplitOrientation.FlatAppearance.BorderColor = m_BorderColor
-        
         Help.BackColor = m_DarkModeBackground45
         Help.ForeColor = Color.White
         Help.FlatStyle = FlatStyle.Flat
@@ -3064,10 +2744,6 @@ Public Class Form1
         Toggle_RightPane.BackColor = Color.FromKnownColor(KnownColor.Control)
         Toggle_RightPane.ForeColor = Color.Black
         Toggle_RightPane.FlatStyle = FlatStyle.Standard
-        
-        Toggle_SplitOrientation.BackColor = Color.FromKnownColor(KnownColor.Control)
-        Toggle_SplitOrientation.ForeColor = Color.Black
-        Toggle_SplitOrientation.FlatStyle = FlatStyle.Standard
         
         Help.BackColor = Color.FromKnownColor(KnownColor.Control)
         Help.ForeColor = Color.Black
