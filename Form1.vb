@@ -61,6 +61,7 @@ Public Class Form1
     Private bln_SortAscending As Boolean = True
     Private b_ShowRenderedHTML As Boolean = False
     Private b_HorizontalLayout As Boolean = False
+    Private b_SwitchingLayout As Boolean = False
     Private img_ToggleRightPaneOriginal As Image = Nothing
     ' Store original positions/sizes/anchors for restoring vertical layout
     Private originalControlData As New Dictionary(Of Control, Tuple(Of Point, Size, AnchorStyles))
@@ -243,19 +244,6 @@ Public Class Form1
             Catch ex As Exception
                 DarkModeToolStripMenuItem.Checked = False
                 ApplyLightMode()
-            End Try
-            
-            ' Load Horizontal Layout setting from config
-            Try
-                Dim horizontalValue As String = S_GetsNBlockFromText(s_ConfigPAT_text, "<HorizontalLayout>", "</HorizontalLayout>", 1)
-                If horizontalValue = "True" Then
-                    HorizontalLayoutToolStripMenuItem.Checked = True
-                    SwitchToHorizontalLayout()
-                Else
-                    HorizontalLayoutToolStripMenuItem.Checked = False
-                End If
-            Catch ex As Exception
-                HorizontalLayoutToolStripMenuItem.Checked = False
             End Try
             
             REM Wire up ListView selection event to populate right pane
@@ -442,6 +430,20 @@ Public Class Form1
             Catch ex As Exception
                 ShowThemedMessageBox("Error loading SearchBottom icon: " & ex.Message)
             End Try
+                        
+            ' Load Horizontal Layout setting from config
+            Try
+                Dim horizontalValue As String = S_GetsNBlockFromText(s_ConfigPAT_text, "<HorizontalLayout>", "</HorizontalLayout>", 1)
+                If horizontalValue = "True" Then
+                    HorizontalLayoutToolStripMenuItem.Checked = True
+                    SwitchToHorizontalLayout()
+                Else
+                    HorizontalLayoutToolStripMenuItem.Checked = False
+                End If
+            Catch ex As Exception
+                HorizontalLayoutToolStripMenuItem.Checked = False
+            End Try
+
         Catch ex As Exception
             ShowThemedMessageBox("Error loading form: " & ex.Message & vbCrLf & ex.StackTrace, "Error")
         End Try
@@ -1063,6 +1065,7 @@ Public Class Form1
     End Function
 
     Private Sub UpdateFindCount()
+        If b_SwitchingLayout Then Return
         If RichTextBox1.Text.Length > 0 AndAlso Find_String.Text.Length > 0 Then
             Dim count As Integer = CountOccurrences(RichTextBox1.Text, Find_String.Text)
             Label_FindCount.Text = count & " match" & If(count <> 1, "es", "") & " found"
@@ -1072,6 +1075,7 @@ Public Class Form1
     End Sub
     
     Private Sub Find_String_KeyDown(sender As Object, e As KeyEventArgs) Handles Find_String.KeyDown
+        If b_SwitchingLayout Then Return
         If e.KeyCode = Keys.Enter Then
             e.SuppressKeyPress = True
             If Not RichTextBox1.Text.Length = 0 Then
@@ -1118,11 +1122,11 @@ Public Class Form1
         If Me.SplitContainer1.Panel2Collapsed Then Exit Sub
         
         If b_HorizontalLayout Then
-            SplitContainer1.Panel1MinSize = 150
-            SplitContainer1.Panel2MinSize = 200
+            SplitContainer1.Panel1MinSize = 150   ' Min width for top panel (ListView)
+            SplitContainer1.Panel2MinSize = 200   ' Min width for bottom panel (edit pane)
         Else
-            SplitContainer1.Panel1MinSize = 200
-            SplitContainer1.Panel2MinSize = 200
+            SplitContainer1.Panel1MinSize = 200   ' Min width for left panel (ListView)
+            SplitContainer1.Panel2MinSize = 250   ' Min width for right panel (edit pane)
         End If
     End Sub
 
@@ -1326,6 +1330,7 @@ Public Class Form1
             Dim scanFolder As String
             If hasZips Then
                 ' This suite has zip files - extract them to a temp folder
+                CloseAllSPSBuilderWindows()
                 If IO.Directory.Exists(tmpPath) Then
                     My.Computer.FileSystem.DeleteDirectory(tmpPath, FileIO.DeleteDirectoryOption.DeleteAllContents)
                 End If
@@ -1456,6 +1461,7 @@ Public Class Form1
             End If
         Next currentSuitePath
         'Delete the _TmpPAT folders for all suites
+        CloseAllSPSBuilderWindows()
         For Each suitePath In allSuitePaths
             Dim tmpCleanup As String = Path.Combine(suitePath, "_Trash", "_TmpPAT")
             If IO.Directory.Exists(tmpCleanup) Then
@@ -1481,7 +1487,30 @@ Public Class Form1
         SelectAll_CheckBox.Checked = False
         ReBuild_SPS_List.Enabled = True
     End Sub
+    
+    Private Sub CloseAllSPSBuilderWindows()
+        ' Find all running SPSBuilder processes
+        Dim builders() As Process = Process.GetProcessesByName("SPSBuilder")
         
+        For Each p As Process In builders
+            Try
+                ' Politely ask the window to close (like clicking X)
+                If Not p.HasExited Then
+                    p.CloseMainWindow()
+                    
+                    ' Wait up to 5 seconds for it to close gracefully
+                    If Not p.WaitForExit(5000) Then
+                        ' It didn't close - force kill as last resort
+                        p.Kill()
+                        p.WaitForExit(2000)
+                    End If
+                End If
+            Catch ex As Exception
+                ' Process may have already exited
+            End Try
+        Next
+    End Sub
+
     Private Sub SelectAll_CheckBox_CheckedChanged(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles SelectAll_CheckBox.CheckedChanged
         For i = 0 To SPS_P_ListView.Items.Count - 1
             SPS_P_ListView.Items(i).Checked = SelectAll_CheckBox.Checked()
@@ -1634,6 +1663,7 @@ Public Class Form1
 
         'Delete the _TmpPAT folders if they exist
         Try
+            CloseAllSPSBuilderWindows()
             For Each suitePath In GetAllSuitePaths()
                 Dim tmpCleanup As String = Path.Combine(suitePath, "_Trash", "_TmpPAT")
                 If IO.Directory.Exists(tmpCleanup) Then
@@ -2480,6 +2510,7 @@ Public Class Form1
     End Sub
     
     Private Sub SwitchToHorizontalLayout()
+        b_SwitchingLayout = True
         b_HorizontalLayout = True
         ' Rotate icon
         If img_ToggleRightPaneOriginal IsNot Nothing Then
@@ -2522,87 +2553,91 @@ Public Class Form1
         
         ' --- Track URL label ---
         Label1.Location = New Point(0, y)
-        Label1.Size = New Size(fieldW, 45)
+        Label1.Size = New Size(fieldW, 46)
         Label1.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Track_URL textbox ---
-        Track_URL.Location = New Point(5, y + 16)
+        Track_URL.Location = New Point(7, y + 19)
         Track_URL.Size = New Size(fieldW - 120, 22)
         Track_URL.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Browser_TrackURL button ---
-        Browser_TrackURL.Location = New Point(fieldW - 130, y + 5)
+        Browser_TrackURL.Location = New Point(fieldW - 107, y + 7)
         Browser_TrackURL.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Download_Track_URL button ---
-        Download_Track_URL.Location = New Point(fieldW - 85, y + 5)
+        Download_Track_URL.Location = New Point(fieldW - 72, y + 7)
         Download_Track_URL.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Save_Track button ---
-        Save_Track.Location = New Point(fieldW - 40, y + 5)
+        Save_Track.Location = New Point(fieldW - 37, y + 7)
         Save_Track.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         
-        y += 50
+        y += 51
         
         ' --- Label2 (Start String label) ---
         Label2.Location = New Point(0, y)
-        Label2.Size = New Size(fieldW, 45)
+        Label2.Size = New Size(fieldW, 46)
         Label2.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Start_String textbox ---
-        Start_String.Location = New Point(5, y + 16)
-        Start_String.Size = New Size(fieldW - 45, 22)
+        Start_String.Location = New Point(7, y + 19)
+        Start_String.Size = New Size(fieldW - 50, 22)
         Start_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Go_To_Start_String button ---
-        Go_To_Start_String.Location = New Point(fieldW - 42, y + 5)
+        Go_To_Start_String.Location = New Point(fieldW - 37, y + 7)
         Go_To_Start_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         
-        y += 50
+        y += 51
         
         ' --- Stop String row ---
         Label3.Location = New Point(0, y)
-        Label3.Size = New Size(fieldW, 45)
+        Label3.Size = New Size(fieldW, 46)
         Label3.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Stop_String textbox ---
-        Stop_String.Location = New Point(5, y + 16)
-        Stop_String.Size = New Size(fieldW - 45, 22)
+        Stop_String.Location = New Point(7, y + 19)
+        Stop_String.Size = New Size(fieldW - 50, 22)
         Stop_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Go_To_Stop_String button ---
-        Go_To_Stop_String.Location = New Point(fieldW - 42, y + 5)
+        Go_To_Stop_String.Location = New Point(fieldW - 37, y + 7)
         Go_To_Stop_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         
-        y += 50
+        y += 51
         
         ' --- Label4 (Search label) ---
         Label4.Location = New Point(0, y)
-        Label4.Size = New Size(fieldW, 45)
+        Label4.Size = New Size(fieldW, 46)
         Label4.Anchor = AnchorStyles.Top Or AnchorStyles.Left
+        ' --- Find_String textbox ---
+        Find_String.Location = New Point(7, y + 19)
+        Find_String.Size = New Size(fieldW - 155, 22)
+        Find_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         ' --- Label_FindCount ---
         Label_FindCount.Location = New Point(50, y + 2)
-        Label_FindCount.Size = New Size(fieldW - 55, 14)
+        Label_FindCount.Size = New Size(fieldW - 195, 16)
         Label_FindCount.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-        ' --- Find_String textbox ---
-        Find_String.Location = New Point(5, y + 16)
-        Find_String.Size = New Size(fieldW - 10, 22)
-        Find_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         
-        y += 5
+        y += 7
         
         ' --- Search buttons ---
-        Search_From_Top.Location = New Point(205, y)
+        Search_From_Top.Location = New Point(fieldW - 142, y)
         Search_From_Top.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-        Search_From_CARET.Location = New Point(250, y)
+        Search_From_CARET.Location = New Point(fieldW - 107, y)
         Search_From_CARET.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-        Reverse_From_CARET.Location = New Point(295, y)
+        Reverse_From_CARET.Location = New Point(fieldW - 72, y)
         Reverse_From_CARET.Anchor = AnchorStyles.Top Or AnchorStyles.Left
-        Reverse_From_BOTTOM.Location = New Point(340, y)
+        Reverse_From_BOTTOM.Location = New Point(fieldW - 37, y)
         Reverse_From_BOTTOM.Anchor = AnchorStyles.Top Or AnchorStyles.Left
         
         ' --- RichTextBox on the right ---
         RichTextBox1.Location = New Point(fieldW + 5, 0)
-        RichTextBox1.Size = New Size(panelW - fieldW - 10, panelH - 5)
+        RichTextBox1.Size = New Size(panelW - fieldW - 10, panelH - 1)
         RichTextBox1.Anchor = AnchorStyles.Top Or AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
         RichTextBox1.Dock = DockStyle.None
         
         SplitContainer1.Panel2.ResumeLayout(True)
+        SendMessage(Me.Handle, WM_SETREDRAW, True, 0)
+        Me.Refresh()
+        b_SwitchingLayout = False
     End Sub
 
     Private Sub SwitchToVerticalLayout()
+        b_SwitchingLayout = True
         b_HorizontalLayout = False
         ' Restore icon
         If img_ToggleRightPaneOriginal IsNot Nothing Then
@@ -2616,16 +2651,26 @@ Public Class Form1
             SplitContainer1.Panel2Collapsed = True
             SendMessage(Me.Handle, WM_SETREDRAW, True, 0)
             Me.Refresh()
+            b_SwitchingLayout = False
             Return
         End If
+                
+        ' Save RichTextBox content and clear it to prevent slow reflow during resize
+        Dim savedRtf As String = Nothing
+        Dim savedTag As Object = RichTextBox1.Tag
+        If RichTextBox1.Text.Length > 0 Then
+            savedRtf = RichTextBox1.Rtf
+            RichTextBox1.Clear()
+        End If
+        
+        ' Freeze painting during layout switch
+        SendMessage(Me.Handle, WM_SETREDRAW, False, 0)
                         
         ' MUST set orientation first
         SplitContainer1.Orientation = Orientation.Vertical
-        SplitContainer1.Panel1MinSize = 200   ' Can't drag further left than this
-        SplitContainer1.Panel2MinSize = 200   ' Can't drag further right than this
         
         ' Set a reasonable splitter distance for vertical mode
-        Dim newDist As Integer = SplitContainer1.Width - 250
+        Dim newDist As Integer = CInt(SplitContainer1.Width * 0.65)
         If newDist > SplitContainer1.Width - 250 Then newDist = SplitContainer1.Width - 250
         If newDist < 200 Then newDist = 200
         Try
@@ -2640,80 +2685,94 @@ Public Class Form1
         
         SplitContainer1.Panel2.SuspendLayout()
         
+        Dim y As Integer = 0
         Dim pw As Integer = SplitContainer1.Panel2.ClientSize.Width
         Dim ph As Integer = SplitContainer1.Panel2.ClientSize.Height
 
         ' --- Restore Label1 (Track URL label) ---
         Label1.Location = New Point(5, 0)
-        Label1.Size = New Size(pw - 6, 45)
+        Label1.Size = New Size(pw - 6, 46)
         Label1.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Track_URL textbox ---
-        Track_URL.Location = New Point(15, 22)
-        Track_URL.Size = New Size(pw - 170, 27)
+        Track_URL.Location = New Point(13, 19)
+        Track_URL.Size = New Size(pw - 130, 27)
         Track_URL.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Browser_TrackURL button ---
-        Browser_TrackURL.Location = New Point(pw - 145, 8)
+        Browser_TrackURL.Location = New Point(pw - 109, 7)
         Browser_TrackURL.Anchor = AnchorStyles.Top Or AnchorStyles.Right
         ' --- Download_Track_URL button ---
-        Download_Track_URL.Location = New Point(pw - 100, 8)
+        Download_Track_URL.Location = New Point(pw - 74, 7)
         Download_Track_URL.Anchor = AnchorStyles.Top Or AnchorStyles.Right
         ' --- Save_Track button ---
-        Save_Track.Location = New Point(pw - 55, 8)
+        Save_Track.Location = New Point(pw - 39, 7)
         Save_Track.Anchor = AnchorStyles.Top Or AnchorStyles.Right
         
+        y += 51
+        
         ' --- Label2 (Start String label) ---
-        Label2.Location = New Point(5, 50)
-        Label2.Size = New Size(pw - 6, 45)
+        Label2.Location = New Point(5, y)
+        Label2.Size = New Size(pw - 6, 46)
         Label2.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Start_String textbox ---
-        Start_String.Location = New Point(15, 82)
-        Start_String.Size = New Size(pw - 80, 27)
+        Start_String.Location = New Point(13, y + 19)
+        Start_String.Size = New Size(pw - 60, 27)
         Start_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Go_To_Start_String button ---
-        Go_To_Start_String.Location = New Point(pw - 55, 68)
+        Go_To_Start_String.Location = New Point(pw - 39, y + 7)
         Go_To_Start_String.Anchor = AnchorStyles.Top Or AnchorStyles.Right
         
+        y += 51
+        
         ' --- Label3 (Stop String label) ---
-        Label3.Location = New Point(5, 100)
-        Label3.Size = New Size(pw - 6, 45)
+        Label3.Location = New Point(5, y)
+        Label3.Size = New Size(pw - 6, 46)
         Label3.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Stop_String textbox ---
-        Stop_String.Location = New Point(15, 143)
-        Stop_String.Size = New Size(pw - 80, 27)
+        Stop_String.Location = New Point(13, y + 19)
+        Stop_String.Size = New Size(pw - 60, 27)
         Stop_String.Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Go_To_Stop_String button ---
-        Go_To_Stop_String.Location = New Point(pw - 55, 128)
+        Go_To_Stop_String.Location = New Point(pw - 39, y + 7)
         Go_To_Stop_String.Anchor = AnchorStyles.Top Or AnchorStyles.Right
         
         ' --- RichTextBox1 ---
         RichTextBox1.Dock = DockStyle.None
-        RichTextBox1.Location = New Point(5, 150)
-        RichTextBox1.Size = New Size(pw - 6, ph - 200)
+        RichTextBox1.Location = New Point(5, 153)
+        RichTextBox1.Size = New Size(pw - 6, ph - 204)
         RichTextBox1.Anchor = AnchorStyles.Top Or AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
         
         ' --- Label4 (Search label) ---
-        Label4.Location = New Point(5, ph - 45)
-        Label4.Size = New Size(pw - 6, 45)
+        Label4.Location = New Point(5, ph - 46)
+        Label4.Size = New Size(pw - 6, 46)
         Label4.Anchor = AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Label_FindCount ---
-        Label_FindCount.Location = New Point(62, ph - 58)
-        Label_FindCount.Size = New Size(pw - 75, 18)
+        Label_FindCount.Location = New Point(50, ph - 45)
+        Label_FindCount.Size = New Size(pw - 200, 17)
         Label_FindCount.Anchor = AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Find_String textbox ---
-        Find_String.Location = New Point(15, ph - 37)
-        Find_String.Size = New Size(pw - 200, 27)
+        Find_String.Location = New Point(13, ph - 27)
+        Find_String.Size = New Size(pw - 165, 27)
         Find_String.Anchor = AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
         ' --- Search buttons ---
-        Search_From_Top.Location = New Point(pw - 190, ph - 52)
+        Search_From_Top.Location = New Point(pw - 144, ph - 39)
         Search_From_Top.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
-        Search_From_CARET.Location = New Point(pw - 145, ph - 52)
+        Search_From_CARET.Location = New Point(pw - 109, ph - 39)
         Search_From_CARET.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
-        Reverse_From_CARET.Location = New Point(pw - 100, ph - 52)
+        Reverse_From_CARET.Location = New Point(pw - 74, ph - 39)
         Reverse_From_CARET.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
-        Reverse_From_BOTTOM.Location = New Point(pw - 55, ph - 52)
+        Reverse_From_BOTTOM.Location = New Point(pw - 39, ph - 39)
         Reverse_From_BOTTOM.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
         
+        ' Restore RichTextBox content AFTER layout is complete
+        If savedRtf IsNot Nothing Then
+            RichTextBox1.Rtf = savedRtf
+            RichTextBox1.Tag = savedTag
+        End If
+        
         SplitContainer1.Panel2.ResumeLayout(True)
+        SendMessage(Me.Handle, WM_SETREDRAW, True, 0)
+        Me.Refresh()
+        b_SwitchingLayout = False
     End Sub
                 
     Private Sub DarkModeToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles DarkModeToolStripMenuItem.Click
