@@ -1,51 +1,11 @@
 REM VVV_Easy_SyMenu "SPS_Published_Track"
 REM v6.x.x.x x64 version by sl23
+REM 2026.03.30-v6.0.0.0: Major upgrade: Now compiled as x64.
 
 ' user agent strings. (https://useragents.io/explore)
 ' If any of your tracked URLs start failing because the server rejects your User-Agent as outdated or suspicious, you can go to that site, grab a current User-Agent string, and update the one in your code.
 
-REM CHANGELOG:
-REM 2026.03.30-v6.0.0.0: Major upgrade: Now compiled as x64.
-' Updated text and buttons.
-' Merged windows into a single split window.
-' Added icons to buttons. Rearranged layout.
-' Added listview selection methods.
-' Added new columns.
-' Added Column moving/sorting/sizing/hiding.
-' Improved search functions to search all suites.
-' Can now press Enter to search.
-' Publisher search now uses fuzzy search.
-' Added DarkMode.
-' Resized defaults.
-' Changed settings extension to XML.
-' Improved performance and GUI responsiveness.
-' Updated Help file.
-' PAT now works from any location, not just the default SyMenuSuite location.
-' Open file now uses modern Explorer windows.
-' Toggle panel - open/close.
-' Toggle panel between right and bottom.
-' Added button to toggle between RTF and HTML.
-
-REM - Original code and changelog by VVV_Easy_SyMenu:
-REM 2025.01.14-V.5.2.0.1: Updated user agent strings. (https://useragents.io/explore)
-REM 2025.03.12-V.5.2.0.2: MERGED Form1 and Form2 into single window with SplitContainer
-
-REM 2018.03.01-V.5.2: Corrected little bugs of change the colors in second track or change the strings in edit track.
-REM 2018.02.27-V.5.1: Download size test improvements (now works with SourceForge).
-REM 2018.02.25-V.5.0: TLS 1.2 protocol supported (but now needed .NET Framework v.4.6.1). Download size test improvements.
-
-REM 2017.02.26-V.4.0: Added menu bar and config file ConfigPAT.xml. Now Help opens forum Topic.
-REM 2017.02.05-V.3.0: Using contextual menu and allow several Edit form.
-REM 2017.02.03-V.2.0: Futherly only SPS App flavour (not Launcher needed) named SPS Published App Track (PAT). Added SPS Builder call with local sps file copy (temporaly located in "SyMenuSuite\_Trash\_TmpPAT").
-REM 2017.01.11-V.1.4b: Corrected the bug saving files with the pluging execute with Launcher (in the SPS app flavour)
-REM 2017.01.09-V.1.4: Showed version in the window title. Added more search options. Corrected some bugs.
-REM 2017.01.05-V.1.3: Added Tooltips. Manage sps Or zip _Cache SPS Suite files. (SyMenu version superior To Version 5.07.6190 [2016.12.13]) Added SPS Publisher column (so the ancient <SPSPublisherName> becomes To <SPSTrackerName>). Allows several SPS Publisher names in the SPS Tracker Name
-
-REM 2016.12.18-V.1.2: Now in SPS stand alone program too as: SyMenu Published App Track (Others - Specialized Editors). Thanks Gian.
-REM 2016.11.10-V.1.2: Corrected some bugs. Full automatic SyMenu plugin detection.
-REM 2016.10.10-V.1.1: Added App Icon, Version and Release Date. Corrected some bugs. Know issue: Not automatic SyMenu plugin detection.
-REM 2016.10.02-V.0.1: First published version.
-REM 2016.09.21-V.Beta
+REM See README.md for CHANGELOG.
 
 Option Explicit On
 Imports System.IO
@@ -170,7 +130,10 @@ Public Class Form1
                     "<Form1_y>" & "150" & "</Form1_y>" & vbCrLf &
                     "<Form1_w>" & "1100" & "</Form1_w>" & vbCrLf &
                     "<Form1_h>" & "700" & "</Form1_h>" & vbCrLf &
+                    "<DarkMode>" & "False" & "</DarkMode>" & vbCrLf &
                     "<SplitterDistance>" & "750" & "</SplitterDistance>" & vbCrLf &
+                    "<HorizontalSplitterDistance>" & "-1" & "</HorizontalSplitterDistance>" & vbCrLf &
+                    "<HorizontalLayout>" & "False" & "</HorizontalLayout>" & vbCrLf &
                     "<SPS_Name_w>" & "225" & "</SPS_Name_w>" & vbCrLf &
                     "<TrackURL_w>" & "130" & "</TrackURL_w>" & vbCrLf &
                     "<TrackStartString_w>" & "150" & "</TrackStartString_w>" & vbCrLf &
@@ -184,7 +147,9 @@ Public Class Form1
                     "<SPSCreationDate_w>" & "120" & "</SPSCreationDate_w>" & vbCrLf &
                     "<SPSModificationDate_w>" & "120" & "</SPSModificationDate_w>" & vbCrLf &
                     "<SPSPublisherName_w>" & "120" & "</SPSPublisherName_w>" & vbCrLf &
-                    "<SuiteName_w>" & "120" & "</SuiteName_w>" & vbCrLf
+                    "<SuiteName_w>" & "120" & "</SuiteName_w>" & vbCrLf &
+                    "<ColumnOrder>" & "0,1,2,3,4,5,6,7,8,9,10,11,12,13" & "</ColumnOrder>" & vbCrLf &
+                    "<SyMenuSuitePath>" & s_SyMenuSuite_Path & "</SyMenuSuitePath>" & vbCrLf
                 'Write the file name.
                 File.WriteAllText(s_ConfigPAT_FilePath, s_ConfigPAT_text, Encoding.UTF8)
                 s_SPS_P_ListFile_Path = s_PAT_Path & "\" & s_Default_PAT_ListFile
@@ -1922,8 +1887,10 @@ Public Class Form1
                 "<Form1_y>" & "150" & "</Form1_y>" & vbCrLf &
                 "<Form1_w>" & "1100" & "</Form1_w>" & vbCrLf &
                 "<Form1_h>" & "700" & "</Form1_h>" & vbCrLf &
+                "<DarkMode>" & "False" & "</DarkMode>" & vbCrLf &
                 "<SplitterDistance>" & "750" & "</SplitterDistance>" & vbCrLf &
                 "<HorizontalSplitterDistance>" & "-1" & "</HorizontalSplitterDistance>" & vbCrLf &
+                "<HorizontalLayout>" & "False" & "</HorizontalLayout>" & vbCrLf &
                 "<SPS_Name_w>" & "225" & "</SPS_Name_w>" & vbCrLf &
                 "<TrackURL_w>" & "130" & "</TrackURL_w>" & vbCrLf &
                 "<TrackStartString_w>" & "150" & "</TrackStartString_w>" & vbCrLf &
@@ -1938,7 +1905,8 @@ Public Class Form1
                 "<SPSModificationDate_w>" & "120" & "</SPSModificationDate_w>" & vbCrLf &
                 "<SPSPublisherName_w>" & "120" & "</SPSPublisherName_w>" & vbCrLf &
                 "<SuiteName_w>" & "120" & "</SuiteName_w>" & vbCrLf &
-                "<ColumnOrder>0,1,2,3,4,5,6,7,8,9,10,11,12,13</ColumnOrder>" & vbCrLf
+                "<ColumnOrder>" & "0,1,2,3,4,5,6,7,8,9,10,11,12,13" & "</ColumnOrder>" & vbCrLf &
+                "<SyMenuSuitePath>" & s_SyMenuSuite_Path & "</SyMenuSuitePath>" & vbCrLf
         REM Principal Form position and redimension
         Me.Width = S_GetsNBlockFromText(s_ConfigPAT_text, "<Form1_w>", "</Form1_w>", 1)
         Me.Height = S_GetsNBlockFromText(s_ConfigPAT_text, "<Form1_h>", "</Form1_h>", 1)
@@ -2550,7 +2518,12 @@ Public Class Form1
             rotated.RotateFlip(RotateFlipType.Rotate90FlipNone)
             Toggle_RightPane.Image = rotated
         End If
-
+        
+        ' Save vertical splitter distance before switching
+        If SplitContainer1.Orientation = Orientation.Vertical AndAlso Not SplitContainer1.Panel2Collapsed Then
+            i_SavedSplitterDistance = SplitContainer1.SplitterDistance
+        End If
+        
         ' If panel is collapsed, just change orientation and exit
         If SplitContainer1.Panel2Collapsed Then
             SendMessage(Me.Handle, WM_SETREDRAW, False, 0)
@@ -2558,9 +2531,21 @@ Public Class Form1
             SplitContainer1.Panel2Collapsed = True
             SendMessage(Me.Handle, WM_SETREDRAW, True, 0)
             Me.Refresh()
+            b_SwitchingLayout = False
             Return
         End If
-                        
+        
+        ' Save RichTextBox content and clear it to prevent slow reflow during resize
+        Dim savedRtf As String = Nothing
+        Dim savedTag As Object = RichTextBox1.Tag
+        If RichTextBox1.Text.Length > 0 Then
+            savedRtf = RichTextBox1.Rtf
+            RichTextBox1.Clear()
+        End If
+        
+        ' Freeze painting during layout switch
+        SendMessage(Me.Handle, WM_SETREDRAW, False, 0)
+        
         SplitContainer1.Panel2.SuspendLayout()
         
         ' Save original control data
@@ -2580,6 +2565,9 @@ Public Class Form1
         If newDist > SplitContainer1.Height - 200 Then newDist = SplitContainer1.Height - 200
         If newDist < 100 Then newDist = 100
         SplitContainer1.SplitterDistance = newDist
+        
+        ' Force layout so Panel2 has correct dimensions
+        SplitContainer1.PerformLayout()
                 
         ' Fixed width for left column of fields
         Dim fieldW As Integer = 400
@@ -2667,12 +2655,20 @@ Public Class Form1
         RichTextBox1.Anchor = AnchorStyles.Top Or AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
         RichTextBox1.Dock = DockStyle.None
         
+        ' Restore RichTextBox content AFTER layout is complete
+        If savedRtf IsNot Nothing Then
+            RichTextBox1.Rtf = savedRtf
+            RichTextBox1.Tag = savedTag
+        End If
+        
         SplitContainer1.Panel2.ResumeLayout(True)
+        
+        ' Resume painting and show final result in one go
         SendMessage(Me.Handle, WM_SETREDRAW, True, 0)
         Me.Refresh()
         b_SwitchingLayout = False
     End Sub
-
+    
     Private Sub SwitchToVerticalLayout()
         b_SwitchingLayout = True
         b_HorizontalLayout = False
@@ -2712,7 +2708,7 @@ Public Class Form1
         SplitContainer1.Orientation = Orientation.Vertical
         
         ' Set a reasonable splitter distance for vertical mode
-        Dim newDist As Integer = CInt(SplitContainer1.Width * 0.65)
+        Dim newDist As Integer = i_SavedSplitterDistance
         If newDist > SplitContainer1.Width - 250 Then newDist = SplitContainer1.Width - 250
         If newDist < 200 Then newDist = 200
         Try
