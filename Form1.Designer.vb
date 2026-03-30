@@ -787,7 +787,7 @@ Partial Class Form1
         Me.Label_FindCount.ForeColor = System.Drawing.SystemColors.HotTrack
         Me.Label_FindCount.Location = New System.Drawing.Point(62, 637)
         Me.Label_FindCount.Name = "Label_FindCount"
-        Me.Label_FindCount.Size = New System.Drawing.Size(683, 18)
+        Me.Label_FindCount.Size = New System.Drawing.Size(685, 18)
         Me.Label_FindCount.TabIndex = 112
         Me.Label_FindCount.Text = ""
         Me.Label_FindCount.TextAlign = System.Drawing.ContentAlignment.TopRight
