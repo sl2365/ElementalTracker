@@ -1,31 +1,52 @@
 REM VVV_Easy_SyMenu "SPS_Published_Track"
 REM v6.x.x.x x64 version by sl23
+
+' user agent strings. (https://useragents.io/explore)
+' If any of your tracked URLs start failing because the server rejects your User-Agent as outdated or suspicious, you can go to that site, grab a current User-Agent string, and update the one in your code.
+
 REM CHANGELOG:
-REM 2026.03.12-v6.0.0.0: Major upgrade: Now compiled as x64. Updated text and buttons. Merged windows into a single split window. Added icons to buttons. Rearranged layout. Added listview selection methods. Added new columns. Added Column moving/sorting/sizing/hiding. Improved search functions to search all suites. Can now press Enter to search. Added DarkMode. Resized defaults. Changed settings extension to XML. Improved performance and GUI responsiveness. Updated Help file. PAT now works from any location, not just the default SyMenuSuite location. Open file now uses modern Explorer windows.
-REM
+REM 2026.03.30-v6.0.0.0: Major upgrade: Now compiled as x64.
+' Updated text and buttons.
+' Merged windows into a single split window.
+' Added icons to buttons. Rearranged layout.
+' Added listview selection methods.
+' Added new columns.
+' Added Column moving/sorting/sizing/hiding.
+' Improved search functions to search all suites.
+' Can now press Enter to search.
+' Publisher search now uses fuzzy search.
+' Added DarkMode.
+' Resized defaults.
+' Changed settings extension to XML.
+' Improved performance and GUI responsiveness.
+' Updated Help file.
+' PAT now works from any location, not just the default SyMenuSuite location.
+' Open file now uses modern Explorer windows.
+' Toggle panel - open/close.
+' Toggle panel between right and bottom.
+' Added button to toggle between RTF and HTML.
+
+REM - Original code and changelog by VVV_Easy_SyMenu:
 REM 2025.01.14-V.5.2.0.1: Updated user agent strings. (https://useragents.io/explore)
-        ' If any of your tracked URLs start failing because the server rejects your User-Agent as outdated or suspicious, you can go to that site, grab a current User-Agent string, and update the one in your code.
 REM 2025.03.12-V.5.2.0.2: MERGED Form1 and Form2 into single window with SplitContainer
-REM
+
 REM 2018.03.01-V.5.2: Corrected little bugs of change the colors in second track or change the strings in edit track.
 REM 2018.02.27-V.5.1: Download size test improvements (now works with SourceForge).
 REM 2018.02.25-V.5.0: TLS 1.2 protocol supported (but now needed .NET Framework v.4.6.1). Download size test improvements.
+
 REM 2017.02.26-V.4.0: Added menu bar and config file ConfigPAT.xml. Now Help opens forum Topic.
 REM 2017.02.05-V.3.0: Using contextual menu and allow several Edit form.
-REM 2017.02.03-V.2.0: Futherly only SPS App flavour (not Launcher needed) named SPS Published App Track (PAT).
-REM                   Added SPS Builder call with local sps file copy (temporaly located in "SyMenuSuite\_Trash\_TmpPAT").
+REM 2017.02.03-V.2.0: Futherly only SPS App flavour (not Launcher needed) named SPS Published App Track (PAT). Added SPS Builder call with local sps file copy (temporaly located in "SyMenuSuite\_Trash\_TmpPAT").
 REM 2017.01.11-V.1.4b: Corrected the bug saving files with the pluging execute with Launcher (in the SPS app flavour)
 REM 2017.01.09-V.1.4: Showed version in the window title. Added more search options. Corrected some bugs.
-REM 2017.01.05-V.1.3: Added Tooltips.
-REM                   Manage sps Or zip _Cache SPS Suite files. (SyMenu version superior To Version 5.07.6190 [2016.12.13])
-REM                   Added SPS Publisher column (so the ancient <SPSPublisherName> becomes To <SPSTrackerName>).
-REM                   Allows several SPS Publisher names in the SPS Tracker Name
+REM 2017.01.05-V.1.3: Added Tooltips. Manage sps Or zip _Cache SPS Suite files. (SyMenu version superior To Version 5.07.6190 [2016.12.13]) Added SPS Publisher column (so the ancient <SPSPublisherName> becomes To <SPSTrackerName>). Allows several SPS Publisher names in the SPS Tracker Name
+
 REM 2016.12.18-V.1.2: Now in SPS stand alone program too as: SyMenu Published App Track (Others - Specialized Editors). Thanks Gian.
 REM 2016.11.10-V.1.2: Corrected some bugs. Full automatic SyMenu plugin detection.
 REM 2016.10.10-V.1.1: Added App Icon, Version and Release Date. Corrected some bugs. Know issue: Not automatic SyMenu plugin detection.
 REM 2016.10.02-V.0.1: First published version.
 REM 2016.09.21-V.Beta
-REM
+
 Option Explicit On
 Imports System.IO
 Imports System.Reflection
@@ -55,6 +76,7 @@ Public Class Form1
     Private img_HTMLView As Image = Nothing
     Private img_RTFView As Image = Nothing
     Private i_RightPanelWidth As Integer = 350
+    Private i_HorizontalSplitterDistance As Integer = -1
     Private ReadOnly m_MsgBtnSize As New Size(60, 25)
     Private s_SyMenuSuitePath As String = Nothing
     Private i_SortColumn As Integer = -1
@@ -190,6 +212,14 @@ Public Class Form1
                 SplitContainer1.SplitterDistance = i_SplitterDist
             End If
             SplitContainer1.FixedPanel = FixedPanel.Panel2
+            
+            Try
+                Dim hDist As String = S_GetsNBlockFromText(s_ConfigPAT_text, "<HorizontalSplitterDistance>", "</HorizontalSplitterDistance>", 1)
+                If hDist <> "" Then
+                    i_HorizontalSplitterDistance = Convert.ToInt32(hDist)
+                End If
+            Catch ex As Exception
+            End Try
             
             REM Principal Form text load
             SPS_P_ListFile_Name.BackColor = Color.Empty
@@ -1633,6 +1663,7 @@ Public Class Form1
             s_ConfigPAT_text &= "<Form1_w>" & Me.Width & "</Form1_w>" & vbCrLf
             s_ConfigPAT_text &= "<Form1_h>" & Me.Height & "</Form1_h>" & vbCrLf
             s_ConfigPAT_text &= "<SplitterDistance>" & Me.SplitContainer1.SplitterDistance & "</SplitterDistance>" & vbCrLf
+            s_ConfigPAT_text &= "<HorizontalSplitterDistance>" & If(b_HorizontalLayout, Me.SplitContainer1.SplitterDistance, i_HorizontalSplitterDistance) & "</HorizontalSplitterDistance>" & vbCrLf
             If SPS_P_ListView.Columns.Count > 0 Then
                 s_ConfigPAT_text &= "<SPS_Name_w>" & Me.SPS_P_ListView.Columns(c_SPS_Name).Width & "</SPS_Name_w>" & vbCrLf
                 s_ConfigPAT_text &= "<TrackURL_w>" & Me.SPS_P_ListView.Columns(c_TrackURL).Width & "</TrackURL_w>" & vbCrLf
@@ -1892,6 +1923,7 @@ Public Class Form1
                 "<Form1_w>" & "1100" & "</Form1_w>" & vbCrLf &
                 "<Form1_h>" & "700" & "</Form1_h>" & vbCrLf &
                 "<SplitterDistance>" & "750" & "</SplitterDistance>" & vbCrLf &
+                "<HorizontalSplitterDistance>" & "-1" & "</HorizontalSplitterDistance>" & vbCrLf &
                 "<SPS_Name_w>" & "225" & "</SPS_Name_w>" & vbCrLf &
                 "<TrackURL_w>" & "130" & "</TrackURL_w>" & vbCrLf &
                 "<TrackStartString_w>" & "150" & "</TrackStartString_w>" & vbCrLf &
@@ -2539,11 +2571,16 @@ Public Class Form1
         
         ' Switch to horizontal orientation
         SplitContainer1.Orientation = Orientation.Horizontal
-        Dim newDist As Integer = CInt(SplitContainer1.Height * 0.5)
+        Dim newDist As Integer
+        If i_HorizontalSplitterDistance > 0 Then
+            newDist = i_HorizontalSplitterDistance
+        Else
+            newDist = CInt(SplitContainer1.Height * 0.5)
+        End If
         If newDist > SplitContainer1.Height - 200 Then newDist = SplitContainer1.Height - 200
         If newDist < 100 Then newDist = 100
         SplitContainer1.SplitterDistance = newDist
-        
+                
         ' Fixed width for left column of fields
         Dim fieldW As Integer = 400
         Dim btnSize As Integer = 35
@@ -2653,6 +2690,11 @@ Public Class Form1
             Me.Refresh()
             b_SwitchingLayout = False
             Return
+        End If
+        
+        ' Save horizontal splitter distance before switching
+        If SplitContainer1.Orientation = Orientation.Horizontal AndAlso Not SplitContainer1.Panel2Collapsed Then
+            i_HorizontalSplitterDistance = SplitContainer1.SplitterDistance
         End If
                 
         ' Save RichTextBox content and clear it to prevent slow reflow during resize
