@@ -61,9 +61,13 @@ Public Class Form1
     Private bln_SortAscending As Boolean = True
     Private b_ShowRenderedHTML As Boolean = False
     Private b_HorizontalLayout As Boolean = False
-'     Private SplitContainer_Horizontal As SplitContainer = Nothing
+    Private img_ToggleRightPaneOriginal As Image = Nothing
     ' Store original positions/sizes/anchors for restoring vertical layout
     Private originalControlData As New Dictionary(Of Control, Tuple(Of Point, Size, AnchorStyles))
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function SendMessage(ByVal hWnd As IntPtr, ByVal Msg As Integer, ByVal wParam As Boolean, ByVal lParam As Integer) As Integer
+    End Function
+    Private Const WM_SETREDRAW As Integer = &HB
 
     REM Manage the correspondence between SPS_P_ListView column header and Subitem Info
     Public Const c_SPS_Name = 0
@@ -112,6 +116,7 @@ Public Class Form1
     
     'Principal Form Subroutines
     Public Sub Form1_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
+        SplitContainer1_SplitterMoved(Nothing, Nothing)
         Try
             REM Set Load Global variables and ConfigPAT
             s_PAT_Path = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
@@ -313,6 +318,16 @@ Public Class Form1
                 Me.Toggle_RightPane.Image = New Bitmap(img, New Size(20, 20))
                 Me.Toggle_RightPane.ImageAlign = ContentAlignment.MiddleCenter
                 Me.Toggle_RightPane.Text = ""
+            Catch ex As Exception
+                ShowThemedMessageBox("Error loading Sidebar icon: " & ex.Message)
+            End Try
+            Try
+                Dim assembly As System.Reflection.Assembly = System.Reflection.Assembly.GetExecutingAssembly()
+                Dim img As Image = Image.FromStream(assembly.GetManifestResourceStream("SPSPublishedAppTrack.Sidebar.png"))
+                Me.Toggle_RightPane.Image = New Bitmap(img, New Size(20, 20))
+                Me.Toggle_RightPane.ImageAlign = ContentAlignment.MiddleCenter
+                Me.Toggle_RightPane.Text = ""
+                img_ToggleRightPaneOriginal = Me.Toggle_RightPane.Image  ' Save original
             Catch ex As Exception
                 ShowThemedMessageBox("Error loading Sidebar icon: " & ex.Message)
             End Try
@@ -1100,18 +1115,14 @@ Public Class Form1
     End Sub
 
     Private Sub SplitContainer1_SplitterMoved(sender As Object, e As SplitterEventArgs) Handles SplitContainer1.SplitterMoved
-        ' Don't apply limits if panel is hidden
-        If Me.SplitContainer1.Panel2Collapsed Then
-            Exit Sub
-        End If
+        If Me.SplitContainer1.Panel2Collapsed Then Exit Sub
         
-        Dim minDistance As Integer = 200
-        Dim maxDistance As Integer = Me.SplitContainer1.Width - i_MaxSplitterDistance
-        
-        If Me.SplitContainer1.SplitterDistance < minDistance Then
-            Me.SplitContainer1.SplitterDistance = minDistance
-        ElseIf Me.SplitContainer1.SplitterDistance > maxDistance Then
-            Me.SplitContainer1.SplitterDistance = maxDistance
+        If b_HorizontalLayout Then
+            SplitContainer1.Panel1MinSize = 150
+            SplitContainer1.Panel2MinSize = 200
+        Else
+            SplitContainer1.Panel1MinSize = 200
+            SplitContainer1.Panel2MinSize = 200
         End If
     End Sub
 
@@ -2470,6 +2481,23 @@ Public Class Form1
     
     Private Sub SwitchToHorizontalLayout()
         b_HorizontalLayout = True
+        ' Rotate icon
+        If img_ToggleRightPaneOriginal IsNot Nothing Then
+            Dim rotated As New Bitmap(img_ToggleRightPaneOriginal)
+            rotated.RotateFlip(RotateFlipType.Rotate90FlipNone)
+            Toggle_RightPane.Image = rotated
+        End If
+
+        ' If panel is collapsed, just change orientation and exit
+        If SplitContainer1.Panel2Collapsed Then
+            SendMessage(Me.Handle, WM_SETREDRAW, False, 0)
+            SplitContainer1.Orientation = Orientation.Horizontal
+            SplitContainer1.Panel2Collapsed = True
+            SendMessage(Me.Handle, WM_SETREDRAW, True, 0)
+            Me.Refresh()
+            Return
+        End If
+                        
         SplitContainer1.Panel2.SuspendLayout()
         
         ' Save original control data
@@ -2576,18 +2604,34 @@ Public Class Form1
 
     Private Sub SwitchToVerticalLayout()
         b_HorizontalLayout = False
-        
+        ' Restore icon
+        If img_ToggleRightPaneOriginal IsNot Nothing Then
+            Toggle_RightPane.Image = img_ToggleRightPaneOriginal
+        End If
+
+        ' If panel is collapsed, just change orientation and exit
+        If SplitContainer1.Panel2Collapsed Then
+            SendMessage(Me.Handle, WM_SETREDRAW, False, 0)
+            SplitContainer1.Orientation = Orientation.Vertical
+            SplitContainer1.Panel2Collapsed = True
+            SendMessage(Me.Handle, WM_SETREDRAW, True, 0)
+            Me.Refresh()
+            Return
+        End If
+                        
         ' MUST set orientation first
         SplitContainer1.Orientation = Orientation.Vertical
+        SplitContainer1.Panel1MinSize = 200   ' Can't drag further left than this
+        SplitContainer1.Panel2MinSize = 200   ' Can't drag further right than this
         
         ' Set a reasonable splitter distance for vertical mode
-        Dim newDist As Integer = CInt(SplitContainer1.Width * 0.55)
+        Dim newDist As Integer = SplitContainer1.Width - 250
         If newDist > SplitContainer1.Width - 250 Then newDist = SplitContainer1.Width - 250
         If newDist < 200 Then newDist = 200
         Try
             SplitContainer1.SplitterDistance = newDist
         Catch
-            SplitContainer1.SplitterDistance = 450
+            SplitContainer1.SplitterDistance = 250
         End Try
         
         ' Force layout AFTER setting distance so Panel2 has correct dimensions
@@ -2598,7 +2642,7 @@ Public Class Form1
         
         Dim pw As Integer = SplitContainer1.Panel2.ClientSize.Width
         Dim ph As Integer = SplitContainer1.Panel2.ClientSize.Height
-        
+
         ' --- Restore Label1 (Track URL label) ---
         Label1.Location = New Point(5, 0)
         Label1.Size = New Size(pw - 6, 45)
