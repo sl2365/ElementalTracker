@@ -211,13 +211,22 @@ Public Class Form1
                 ' If error, just leave all checked (default)
             End Try
             ' Restore column order
+            ' Must apply in ascending DisplayIndex order to avoid WinForms shifting bug
             Try
                 Dim colOrderStr As String = S_GetsNBlockFromText(s_ConfigPAT_text, "<ColumnOrder>", "</ColumnOrder>", 1)
                 If colOrderStr <> "" Then
                     Dim parts() As String = colOrderStr.Split(","c)
                     If parts.Length = SPS_P_ListView.Columns.Count Then
+                        ' Build list of (columnIndex, displayIndex) pairs
+                        Dim pairs As New List(Of Tuple(Of Integer, Integer))
                         For i As Integer = 0 To parts.Length - 1
-                            SPS_P_ListView.Columns(i).DisplayIndex = Convert.ToInt32(parts(i))
+                            pairs.Add(Tuple.Create(i, Convert.ToInt32(parts(i))))
+                        Next
+                        ' Sort by target DisplayIndex ascending
+                        pairs.Sort(Function(a, b) a.Item2.CompareTo(b.Item2))
+                        ' Apply in ascending DisplayIndex order
+                        For Each pair In pairs
+                            SPS_P_ListView.Columns(pair.Item1).DisplayIndex = pair.Item2
                         Next
                     End If
                 End If
@@ -3345,7 +3354,6 @@ Public Class HelpForm
             "  \cf3 Original code by VVV_Easy_SyMenu.\par" &
             "  \cf3 Updated to v6.x.x.x 64bit by sl23.\par" &
             "}"
-
         Return rtf
     End Function
 End Class
