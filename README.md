@@ -42,6 +42,8 @@ Major upgrade — now compiled as **x64**.
 - Toggle panel — open/close
 - Toggle panel between right and bottom orientation
 - Added button to toggle between RTF and HTML view
+- Edited SPS can be saved back to the your suites zip files
+- Extraction enhanced, more secure so you dont lose modified SPS in tmp folder
 
 ---
 

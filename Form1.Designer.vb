@@ -458,7 +458,7 @@ Partial Class Form1
         Me.ToolStrip_OpenCheckedSPS.Image = CType(resources.GetObject("ToolStrip_OpenCheckedSPS.Image"), System.Drawing.Image)
         Me.ToolStrip_OpenCheckedSPS.Name = "ToolStrip_OpenCheckedSPS"
         Me.ToolStrip_OpenCheckedSPS.Size = New System.Drawing.Size(278, 26)
-        Me.ToolStrip_OpenCheckedSPS.Text = "Open checked in SPS"
+        Me.ToolStrip_OpenCheckedSPS.Text = "Open Checked in SPS"
         '
         'ToolStripSeparator2
         '
@@ -518,7 +518,7 @@ Partial Class Form1
         Me.ToolStrip_SaveCheckedToZip.Image = CType(resources.GetObject("ToolStrip_SaveCheckedToZip.Image"), System.Drawing.Image)
         Me.ToolStrip_SaveCheckedToZip.Name = "ToolStrip_SaveCheckedToZip"
         Me.ToolStrip_SaveCheckedToZip.Size = New System.Drawing.Size(278, 26)
-        Me.ToolStrip_SaveCheckedToZip.Text = "Save checked SPS to Zip"
+        Me.ToolStrip_SaveCheckedToZip.Text = "Save Checked SPS to Zip"
         '
         'ViewSPS_NameToolStripMenuItem
         '
