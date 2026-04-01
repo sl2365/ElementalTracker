@@ -1367,8 +1367,6 @@ Public Class Form1
             Dim scanFolder As String
             If hasZips Then
                 ' This suite has zip files - extract them to a temp folder
-                CloseAllSPSBuilderWindows()
-                
                 If Not IO.Directory.Exists(Path.Combine(currentSuitePath, "_Trash")) Then
                     IO.Directory.CreateDirectory(Path.Combine(currentSuitePath, "_Trash"))
                 End If
@@ -1376,20 +1374,34 @@ Public Class Form1
                 ' Determine extraction mode
                 Dim extractSwitch As String = "-aoa"  ' Default: overwrite all
                 Dim skipExtraction As Boolean = False
+                Dim buildersOpen As Boolean = AreSPSBuilderWindowsOpen()
+                
                 If IO.Directory.Exists(tmpPath) AndAlso IO.Directory.GetFiles(tmpPath).Length > 0 Then
-                    Dim answer As DialogResult = ShowThemedMessageBox(
-                        "Temp folder already contains extracted files for suite:" & vbCrLf &
-                        Path.GetFileName(currentSuitePath) & vbCrLf & vbCrLf &
-                        "Yes = Extract all files (overwrite existing)" & vbCrLf &
-                        "No = Extract only new files (keep existing)" & vbCrLf &
-                        "Cancel = Skip extraction",
+                    Dim msg As String = "Temp folder already contains extracted files for suite:" & vbCrLf &
+                        Path.GetFileName(currentSuitePath) & vbCrLf & vbCrLf
+                    
+                    If buildersOpen Then
+                        msg &= "NOTE: SPSBuilder windows are open. Files being edited will be" & vbCrLf &
+                               "skipped during extraction. You can save your edits afterward." & vbCrLf & vbCrLf
+                    End If
+                    
+                    msg &= "Yes = Extract all files (overwrite existing, skip locked)" & vbCrLf &
+                           "No = Extract only new files (keep existing)" & vbCrLf &
+                           "Cancel = Skip extraction"
+                    
+                    Dim answer As DialogResult = ShowThemedMessageBox(msg,
                         "Extract Files", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question)
                     If answer = DialogResult.Cancel Then
                         skipExtraction = True
                     ElseIf answer = DialogResult.No Then
                         extractSwitch = "-aos"  ' Skip existing files
                     End If
-                    ' Yes = keep "-aoa" (overwrite all)
+                    ' Yes = keep "-aoa" (overwrite all, locked files will be skipped by OS)
+                ElseIf buildersOpen Then
+                    ShowThemedMessageBox(
+                        "SPSBuilder windows are open. Any files they have locked" & vbCrLf &
+                        "will be skipped during extraction. You can save your edits afterward.",
+                        "SPSBuilder Running", MessageBoxButtons.OK, MessageBoxIcon.Information)
                 End If
                 
                 If Not skipExtraction Then
@@ -1546,27 +1558,24 @@ Public Class Form1
         ReBuild_SPS_List.Enabled = True
     End Sub
     
-    Private Sub CloseAllSPSBuilderWindows()
-        ' Find all running SPSBuilder processes
+    Private Function AreSPSBuilderWindowsOpen() As Boolean
         Dim builders() As Process = Process.GetProcessesByName("SPSBuilder")
-        
-        For Each p As Process In builders
-            Try
-                ' Politely ask the window to close (like clicking X)
-                If Not p.HasExited Then
-                    p.CloseMainWindow()
-                    
-                    ' Wait up to 5 seconds for it to close gracefully
-                    If Not p.WaitForExit(5000) Then
-                        ' It didn't close - force kill as last resort
-                        p.Kill()
-                        p.WaitForExit(2000)
-                    End If
-                End If
-            Catch ex As Exception
-                ' Process may have already exited
-            End Try
-        Next
+        Return builders.Length > 0
+    End Function
+
+    Private Sub OpenSPSBuilderToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles OpenSPSBuilderToolStripMenuItem.Click
+        Try
+            Dim spsBuilderPath As String = Path.Combine(s_SyMenuSuite_Path, "SPS_Builder_sps", "SPSBuilder.exe")
+            If File.Exists(spsBuilderPath) Then
+                Process.Start(spsBuilderPath)
+            Else
+                ShowThemedMessageBox("SPSBuilder.exe not found at:" & vbCrLf & spsBuilderPath,
+                    "SPSBuilder Not Found", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            End If
+        Catch ex As Exception
+            ShowThemedMessageBox("Error launching SPSBuilder: " & ex.Message,
+                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
     End Sub
 
     Private Sub SelectAll_CheckBox_CheckedChanged(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles SelectAll_CheckBox.CheckedChanged

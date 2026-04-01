@@ -76,6 +76,8 @@ Partial Class Form1
         Me.ConfigToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.SaveToolStripMenuItem1 = New System.Windows.Forms.ToolStripMenuItem()
         Me.RestoreDefaultToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.ToolsToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.OpenSPSBuilderToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.DarkModeToolStripMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.DarkModeToolStripMenuItem.CheckOnClick = True
         Me.DarkModeToolStripMenuItem.Name = "DarkModeToolStripMenuItem"
@@ -658,7 +660,7 @@ Partial Class Form1
         'MenuStrip1
         '
         Me.MenuStrip1.ImageScalingSize = New System.Drawing.Size(20, 20)
-        Me.MenuStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.FileToolStripMenuItem, Me.ViewToolStripMenuItem, Me.ConfigToolStripMenuItem})
+        Me.MenuStrip1.Items.AddRange(New System.Windows.Forms.ToolStripItem() {Me.FileToolStripMenuItem, Me.ViewToolStripMenuItem, Me.ToolsToolStripMenuItem, Me.ConfigToolStripMenuItem})
         Me.MenuStrip1.Location = New System.Drawing.Point(0, 0)
         Me.MenuStrip1.Name = "MenuStrip1"
         Me.MenuStrip1.Size = New System.Drawing.Size(1422, 28)
@@ -741,6 +743,21 @@ Partial Class Form1
         Me.RestoreDefaultToolStripMenuItem.Name = "RestoreDefaultToolStripMenuItem"
         Me.RestoreDefaultToolStripMenuItem.Size = New System.Drawing.Size(187, 26)
         Me.RestoreDefaultToolStripMenuItem.Text = "Restore Defaults"
+        '
+        'OpenSPSBuilderToolStripMenuItem
+        '
+        Me.OpenSPSBuilderToolStripMenuItem.Name = "OpenSPSBuilderToolStripMenuItem"
+        Me.OpenSPSBuilderToolStripMenuItem.Size = New System.Drawing.Size(200, 26)
+        Me.OpenSPSBuilderToolStripMenuItem.Text = "Open SPSBuilder"
+        '
+        'ToolsToolStripMenuItem
+        '
+        Me.ToolsToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.OpenSPSBuilderToolStripMenuItem})
+        Me.ToolsToolStripMenuItem.Name = "ToolsToolStripMenuItem"
+        Me.ToolsToolStripMenuItem.Size = New System.Drawing.Size(52, 24)
+        Me.ToolsToolStripMenuItem.Text = "Tools"
+
+    
         '
         ' RIGHT PANE CONTROLS (from Form2)
         '
@@ -1114,12 +1131,14 @@ Partial Class Form1
     Friend WithEvents DarkModeToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents HorizontalLayoutToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents SelectSuitesToolStripMenuItem As ToolStripMenuItem
-    
+    Friend WithEvents ToolsToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents OpenSPSBuilderToolStripMenuItem As ToolStripMenuItem
+
     ' SplitContainer
     Friend WithEvents SplitContainer1 As System.Windows.Forms.SplitContainer
     Friend WithEvents Panel_Left As System.Windows.Forms.Panel
     Friend WithEvents Panel_Right As System.Windows.Forms.Panel
-    
+
     ' Right Pane Controls (from Form2)
     Friend WithEvents Toggle_HTMLView As Button
     Friend WithEvents Track_URL As System.Windows.Forms.TextBox
