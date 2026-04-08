@@ -20,6 +20,14 @@ If any of your tracked URLs start failing because the server rejects your User-A
 
 ## Changelog
 
+### v7.0.2.475 — 2026.04.08
+- Added WebView toolbar button to add current page to Track URL field
+- Added new check function taht search for plain text in Source tab
+- Added WebView context for adding Download URL/Start/Stop strings direct to the fields in Track Settings.
+   Download URL is context sensitive, ie, works on file links only
+- Some other minor enhancements: Save buttons disabled by default, only enabled when Track Settings changes are detected
+
+
 ### v7.0.0.0 — 2026.04.07 (sl23)
 
 Major upgrade — now compiled as **x64**.
