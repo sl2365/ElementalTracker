@@ -48,6 +48,7 @@ Major upgrade — now compiled as **x64**.
 
 ### Todo ###
 - Add full SyMenu SPS support
+- Sort out MenuBar items not working
 - Code cleanup
 - Possible performance enhancements
 
