@@ -48,10 +48,12 @@
 				<Separator />
 		        <Button x:Name="btnSave" Content="&#xE74E;" Click="Save_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
-		                Padding="7,4" Margin="2,2,2,2" ToolTip="Save track file" />
+		                Padding="7,4" Margin="2,2,2,2" ToolTip="Save track file"
+		                IsEnabled="False" Opacity="0.4" />
 		        <Button x:Name="btnSaveAs" Content="&#xE792;" Click="SaveTrackAs_Click"
-				        FontFamily="Segoe Fluent Icons" FontSize="17"
-				        Padding="7,4" Margin="2,2,2,2" ToolTip="Save track as..." />
+		                FontFamily="Segoe Fluent Icons" FontSize="17"
+		                Padding="7,4" Margin="2,2,2,2" ToolTip="Save track as..."
+		                IsEnabled="False" Opacity="0.4" />
 		        <Separator />
 		        <Button x:Name="btnToggleLayout" Content="&#xeca5;" Click="ToggleLayout_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"

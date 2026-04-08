@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace PublishedAppTracker
 {
@@ -53,6 +54,12 @@ namespace PublishedAppTracker
         private bool blockCookiePopups = true;
         private TextBox editEditorPath;
         private Style columnHeaderStyle;
+        private bool isDirty = false;
+        private bool isLoadingFields = false;
+        private Button btnSaveTrack;
+        private Button btnSaveTrackAs;
+        private Button btnSaveMain;
+        private Button btnSaveAsMain;
 
         // Source tab fields
         private RichTextBox sourceView;
@@ -144,6 +151,8 @@ namespace PublishedAppTracker
 			previewTheme = currentTheme.Clone();
 
 			BuildSharedControls();
+            btnSaveMain = btnSave;
+            btnSaveAsMain = btnSaveAs;
             PlaceControlsInLayout();
             // Restore toolbar position from saved settings
 			if (!string.IsNullOrEmpty(windowSettings.ToolbarPosition) &&
@@ -174,6 +183,24 @@ namespace PublishedAppTracker
             // Save settings on close
             this.Closing += (s, ev) =>
             {
+                if (isDirty)
+                {
+                    MessageBoxResult result = MessageBox.Show(
+                        "You have unsaved changes.\n\nDo you want to save before closing?",
+                        "PAT v7 — Unsaved Changes",
+                        MessageBoxButton.YesNoCancel,
+                        MessageBoxImage.Warning);
+
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        Save_Click(s, new RoutedEventArgs());
+                    }
+                    else if (result == MessageBoxResult.Cancel)
+                    {
+                        ev.Cancel = true;
+                        return;
+                    }
+                }
                 SaveWindowSettings();
             };
 
@@ -403,11 +430,15 @@ namespace PublishedAppTracker
 
             trackToolBar.Items.Add(new Separator());
 
-			Button btnSaveTrack = CreateToolBarButton("\uE74E", "Save track file", Save_Click);
-			trackToolBar.Items.Add(btnSaveTrack);
+            btnSaveTrack = CreateToolBarButton("\uE74E", "Save track file", Save_Click);
+            btnSaveTrack.IsEnabled = false;
+            btnSaveTrack.Opacity = 0.4;
+            trackToolBar.Items.Add(btnSaveTrack);
 
-			Button btnSaveTrackAs = CreateToolBarButton("\uE792", "Save track as...", SaveTrackAs_Click);
-			trackToolBar.Items.Add(btnSaveTrackAs);
+            btnSaveTrackAs = CreateToolBarButton("\uE792", "Save track as...", SaveTrackAs_Click);
+            btnSaveTrackAs.IsEnabled = false;
+            btnSaveTrackAs.Opacity = 0.4;
+            trackToolBar.Items.Add(btnSaveTrackAs);
 
             trackToolBar.Items.Add(new Separator());
 
@@ -546,6 +577,17 @@ namespace PublishedAppTracker
             DockPanel.SetDock(trackToolBarTray, Dock.Top);
             trackSettingsPanel.Children.Add(trackToolBarTray);
             trackSettingsPanel.Children.Add(scrollArea);
+
+            // Wire up dirty tracking on all editable fields
+            editName.TextChanged += Field_TextChanged;
+            editTrackURL.TextChanged += Field_TextChanged;
+            editStartString.TextChanged += Field_TextChanged;
+            editStopString.TextChanged += Field_TextChanged;
+            editDownloadURL.TextChanged += Field_TextChanged;
+            editVersion.TextChanged += Field_TextChanged;
+            editReleaseDate.TextChanged += Field_TextChanged;
+            editPublisherName.TextChanged += Field_TextChanged;
+            editSuiteName.TextChanged += Field_TextChanged;
         }
 
         private void BuildTabbedPane()
@@ -1509,6 +1551,8 @@ namespace PublishedAppTracker
 
             currentTrackItem = selected;
 
+            isLoadingFields = true;
+
             editName.Text = selected.ProgramName;
             editTrackURL.Text = selected.TrackURL;
             editStartString.Text = selected.StartString;
@@ -1519,6 +1563,9 @@ namespace PublishedAppTracker
             editReleaseDate.Text = selected.ReleaseDate;
             editPublisherName.Text = selected.PublisherName;
             editSuiteName.Text = selected.SuiteName;
+
+            isLoadingFields = false;
+            ClearDirty();
 
             statusFile.Text = "Track: " + selected.ProgramName +
                 " (" + Path.GetFileName(selected.FilePath) + ")";
@@ -1533,7 +1580,6 @@ namespace PublishedAppTracker
                 currentSource = "";
                 sourceView.Document.Blocks.Clear();
             }
-            // If suppressAutoDownload is true, leave currentSource and sourceView untouched
         }
         
         private void SelectAll_Click(object sender, RoutedEventArgs e)
@@ -1771,9 +1817,11 @@ namespace PublishedAppTracker
             // Update fields if a track is loaded
             if (currentTrackItem != null)
             {
+                isLoadingFields = true;
                 editVersion.Text = currentTrackItem.Version;
                 UpdateVersionDisplay();
                 editReleaseDate.Text = currentTrackItem.ReleaseDate;
+                isLoadingFields = false;
             }
 
             // Re-download source for the currently selected track
@@ -1928,6 +1976,52 @@ namespace PublishedAppTracker
         // ============================
         // Track Settings Buttons
         // ============================
+
+        private void MarkDirty()
+        {
+            if (isLoadingFields) return;
+            if (isDirty) return;
+            isDirty = true;
+            UpdateSaveButtonStates();
+        }
+
+        private void ClearDirty()
+        {
+            isDirty = false;
+            UpdateSaveButtonStates();
+        }
+
+        private void UpdateSaveButtonStates()
+        {
+            double enabledOpacity = 1.0;
+            double disabledOpacity = 0.4;
+
+            if (btnSaveTrack != null)
+            {
+                btnSaveTrack.IsEnabled = isDirty;
+                btnSaveTrack.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+            }
+            if (btnSaveTrackAs != null)
+            {
+                btnSaveTrackAs.IsEnabled = isDirty;
+                btnSaveTrackAs.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+            }
+            if (btnSaveMain != null)
+            {
+                btnSaveMain.IsEnabled = isDirty;
+                btnSaveMain.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+            }
+            if (btnSaveAsMain != null)
+            {
+                btnSaveAsMain.IsEnabled = isDirty;
+                btnSaveAsMain.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+            }
+        }
+
+        private void Field_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            MarkDirty();
+        }
 
         private void OpenFileInEditor_Click(object sender, RoutedEventArgs e)
         {
@@ -2101,6 +2195,7 @@ namespace PublishedAppTracker
                 }
 
                 selected.SaveToFile();
+                ClearDirty();
 
                 int selectedIndex = currentItems.IndexOf(selected);
                 suppressAutoDownload = true;
@@ -4542,7 +4637,6 @@ namespace PublishedAppTracker
 		    }
 		}
 
-
 		private void ApplyThemeToPanelContent(DependencyObject obj, ThemeSettings theme)
 		{
 		    if (obj == null) return;
@@ -4580,7 +4674,6 @@ namespace PublishedAppTracker
 		        ApplyThemeToPanelContent(content, theme);
 		    }
 		}
-
 
 		private void ApplyForegroundRecursive(DependencyObject parent, SolidColorBrush panelFg, SolidColorBrush labelFg, ThemeSettings theme)
 		{
@@ -4722,6 +4815,28 @@ namespace PublishedAppTracker
 		        FindAndRefreshStatusIcons(child);
 		    }
 		}
+
+        private void MainWindow_Closing(object sender,
+            System.ComponentModel.CancelEventArgs e)
+        {
+            if (isDirty)
+            {
+                MessageBoxResult result = MessageBox.Show(
+                    "You have unsaved changes.\n\nDo you want to save before closing?",
+                    "PAT v7 — Unsaved Changes",
+                    MessageBoxButton.YesNoCancel,
+                    MessageBoxImage.Warning);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    Save_Click(sender, new RoutedEventArgs());
+                }
+                else if (result == MessageBoxResult.Cancel)
+                {
+                    e.Cancel = true;
+                }
+            }
+        }
 
         // ============================
         // Toolbar Docking
@@ -4949,6 +5064,7 @@ namespace PublishedAppTracker
                 copy.CreationDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
 
                 copy.SaveToFile(newPath);
+                ClearDirty();
 
                 // Reload the category and select the new track
                 string folderPath = currentCategoryPath;
@@ -5144,14 +5260,32 @@ namespace PublishedAppTracker
             StackPanel panel = new StackPanel();
 
             // App icon and title
-            TextBlock title = new TextBlock();
-            title.Text = "\uE71E";
-            title.FontFamily = new FontFamily("Segoe Fluent Icons");
-            title.FontSize = 48;
-            title.Foreground = new SolidColorBrush(currentTheme.StatusBarForeground);
-            title.HorizontalAlignment = HorizontalAlignment.Center;
-            title.Margin = new Thickness(0, 0, 0, 8);
-            panel.Children.Add(title);
+            Image appIcon = new Image();
+            try
+            {
+                string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+                System.Drawing.Icon exeIcon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+                if (exeIcon != null)
+                {
+                    using (var ms = new System.IO.MemoryStream())
+                    {
+                        exeIcon.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                        ms.Position = 0;
+                        BitmapImage bmp = new BitmapImage();
+                        bmp.BeginInit();
+                        bmp.CacheOption = BitmapCacheOption.OnLoad;
+                        bmp.StreamSource = ms;
+                        bmp.EndInit();
+                        appIcon.Source = bmp;
+                    }
+                }
+            }
+            catch (Exception) { }
+            appIcon.Width = 64;
+            appIcon.Height = 64;
+            appIcon.HorizontalAlignment = HorizontalAlignment.Center;
+            appIcon.Margin = new Thickness(0, 0, 0, 8);
+            panel.Children.Add(appIcon);
 
             TextBlock appName = new TextBlock();
             appName.Text = "Published App Tracker";

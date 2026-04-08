@@ -5,6 +5,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>icons\app.ico</ApplicationIcon>
     <RootNamespace>PublishedAppTracker</RootNamespace>
     <AssemblyName>PublishedAppTracker</AssemblyName>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
@@ -26,6 +27,12 @@
   <ItemGroup>
     <ApplicationDefinition Include="src\App.xaml" />
     <Page Include="src\MainWindow.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="icons\app.ico">
+      <LogicalName>icons/app.ico</LogicalName>
+    </Resource>
   </ItemGroup>
 
   <ItemGroup>
