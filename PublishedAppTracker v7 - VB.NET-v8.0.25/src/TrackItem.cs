@@ -44,7 +44,8 @@ namespace PublishedAppTracker
 		public string LatestVersionStatus { get; set; } = "";
 		public string DownloadURLStatus { get; set; } = "";
 		public string DownloadSizeStatus { get; set; } = "";
-		
+        public string TrackMode { get; set; } = "html";
+
         // ============================
         // Track Block Extraction
         // ============================
@@ -624,6 +625,7 @@ namespace PublishedAppTracker
                 writer.WriteElementString("ModificationDate", ModificationDate ?? "");
                 writer.WriteElementString("PublisherName", PublisherName ?? "");
                 writer.WriteElementString("SuiteName", SuiteName ?? "");
+                writer.WriteElementString("TrackMode", TrackMode ?? "html");
                 writer.WriteEndElement();
 
                 writer.WriteEndElement();
@@ -669,6 +671,9 @@ namespace PublishedAppTracker
                 item.ModificationDate = GetNodeText(track, "ModificationDate");
                 item.PublisherName = GetNodeText(track, "PublisherName");
                 item.SuiteName = GetNodeText(track, "SuiteName");
+                item.TrackMode = GetNodeText(track, "TrackMode");
+                if (string.IsNullOrEmpty(item.TrackMode))
+                    item.TrackMode = "html";
 
                 if (string.IsNullOrEmpty(item.TrackStatus))
                     item.TrackStatus = "unchecked";

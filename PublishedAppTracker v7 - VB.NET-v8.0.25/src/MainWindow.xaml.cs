@@ -25,6 +25,7 @@ namespace PublishedAppTracker
         private List<TrackItem> currentItems = new List<TrackItem>();
         private string lastSortColumn = "";
         private bool lastSortAscending = true;
+        private string cookieBlockerScriptId;
 
         // Shared controls - created once in code
         private DockPanel categoryPanel;
@@ -60,6 +61,7 @@ namespace PublishedAppTracker
         private Button btnSaveTrackAs;
         private Button btnSaveMain;
         private Button btnSaveAsMain;
+        private Button btnTrackMode;
 
         // Source tab fields
         private RichTextBox sourceView;
@@ -450,6 +452,40 @@ namespace PublishedAppTracker
 
             trackToolBar.Items.Add(new Separator());
 
+            btnTrackMode = new Button();
+            btnTrackMode.Content = "</ >";
+            btnTrackMode.FontFamily = SystemFonts.MessageFontFamily;
+            btnTrackMode.FontSize = 12;
+            btnTrackMode.FontWeight = FontWeights.Bold;
+            btnTrackMode.Padding = new Thickness(6, 2, 6, 2);
+            btnTrackMode.Margin = new Thickness(1, 2, 1, 2);
+            btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
+            btnTrackMode.Click += (s, ev) =>
+            {
+                if (currentTrackItem == null) return;
+
+                if (currentTrackItem.TrackMode == "text")
+                {
+                    currentTrackItem.TrackMode = "html";
+                    btnTrackMode.Content = "</ >";
+                    btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
+                    statusFile.Text = "Track mode: HTML source";
+                }
+                else
+                {
+                    currentTrackItem.TrackMode = "text";
+                    btnTrackMode.Content = "Aa";
+                    btnTrackMode.ToolTip = "Track Mode: Text (click to switch to HTML)";
+                    statusFile.Text = "Track mode: Rendered text";
+                }
+
+                MarkDirty();
+                ReloadSourceForCurrentMode();
+            };
+            trackToolBar.Items.Add(btnTrackMode);
+
+            trackToolBar.Items.Add(new Separator());
+
 			Button btnDownloadToolbar = CreateToolBarButton("\uE896", "Download page source", DownloadPage_Click);
             trackToolBar.Items.Add(btnDownloadToolbar);
 
@@ -515,6 +551,11 @@ namespace PublishedAppTracker
             editStartString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             startDock.Children.Add(editStartString);
             fieldsPanel.Children.Add(startDock);
+            editStartString.TextChanged += (s, ev) =>
+            {
+                if (!isLoadingFields)
+                    MarkDirty();
+            };
 
             // Stop String with Go To button
             DockPanel stopLabelDock = new DockPanel();
@@ -546,6 +587,15 @@ namespace PublishedAppTracker
             fieldsPanel.Children.Add(stopDock);
             editDownloadURL = AddSettingsField(fieldsPanel, "Download URL:");
             editVersion = AddSettingsField(fieldsPanel, "Version:", 150);
+            editStopString.TextChanged += (s, ev) =>
+            {
+                if (!isLoadingFields)
+                {
+                    MarkDirty();
+                    if (currentTrackItem != null)
+                        currentTrackItem.StopString = editStopString.Text;
+                }
+            };
 
             // Read-only latest version display with update button
             TextBlock latestLabel = new TextBlock();
@@ -1078,10 +1128,53 @@ namespace PublishedAppTracker
             chkBlockPopups.IsChecked = true;
             chkBlockPopups.ToolTip = "Automatically hides cookie consent popups.\nUnchecking clears cookies for this site\n(you may be signed out) and reload the page.";
             chkBlockPopups.Margin = new Thickness(2, 0, 0, 0);
+
             chkBlockPopups.Checked += async (s, ev) =>
             {
                 blockCookiePopups = true;
                 statusFile.Text = "Cookie popup blocker enabled";
+
+                // Re-add early CSS blocker
+                if (string.IsNullOrEmpty(cookieBlockerScriptId))
+                {
+                    try
+                    {
+                        cookieBlockerScriptId = await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
+                            (function() {
+                                var style = document.createElement('style');
+                                style.id = '__patCookieBlockerEarlyCSS';
+                                style.textContent = `
+                                    [id*='cookie' i], [class*='cookie' i],
+                                    [id*='consent' i], [class*='consent' i],
+                                    [id*='gdpr' i], [class*='gdpr' i],
+                                    [id*='onetrust' i], [class*='onetrust' i],
+                                    [id*='CybotCookiebot' i],
+                                    .cookie-banner, .cookie-notice, .cookie-popup,
+                                    #cookie-law-info-bar, .cli-modal,
+                                    [class*='cc-banner' i], [class*='cc-window' i],
+                                    [class*='cookiewall' i], [id*='cookiewall' i] {
+                                        display: none !important;
+                                        visibility: hidden !important;
+                                        opacity: 0 !important;
+                                        pointer-events: none !important;
+                                    }
+                                    body, html {
+                                        overflow: auto !important;
+                                    }
+                                `;
+                                if (document.head) {
+                                    document.head.appendChild(style);
+                                } else {
+                                    document.addEventListener('DOMContentLoaded', function() {
+                                        document.head.appendChild(style);
+                                    });
+                                }
+                            })();
+                        ");
+                    }
+                    catch (Exception) { }
+                }
+
                 try
                 {
                     if (webView.CoreWebView2 != null)
@@ -1089,9 +1182,22 @@ namespace PublishedAppTracker
                 }
                 catch (Exception) { }
             };
+
             chkBlockPopups.Unchecked += async (s, ev) =>
             {
                 blockCookiePopups = false;
+
+                // Remove the early injected CSS blocker
+                if (!string.IsNullOrEmpty(cookieBlockerScriptId))
+                {
+                    try
+                    {
+                        webView.CoreWebView2.RemoveScriptToExecuteOnDocumentCreated(cookieBlockerScriptId);
+                        cookieBlockerScriptId = null;
+                    }
+                    catch (Exception) { }
+                }
+
                 statusFile.Text = "Cookie popup blocker disabled — clearing site cookies and reloading...";
                 try
                 {
@@ -1101,6 +1207,8 @@ namespace PublishedAppTracker
                             window.__patCookieBlockerActive = false;
                             var css = document.getElementById('__patCookieBlockerCSS');
                             if (css) css.remove();
+                            var earlyCss = document.getElementById('__patCookieBlockerEarlyCSS');
+                            if (earlyCss) earlyCss.remove();
                         ");
 
                         string currentUrl = webView.CoreWebView2.Source;
@@ -1592,6 +1700,21 @@ namespace PublishedAppTracker
             editPublisherName.Text = selected.PublisherName;
             editSuiteName.Text = selected.SuiteName;
 
+            // Update track mode button
+            if (btnTrackMode != null)
+            {
+                if (selected.TrackMode == "text")
+                {
+                    btnTrackMode.Content = "Aa";
+                    btnTrackMode.ToolTip = "Track Mode: Text (click to switch to HTML)";
+                }
+                else
+                {
+                    btnTrackMode.Content = "</ >";
+                    btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
+                }
+            }
+			statusFile.Text = "Track: " + selected.ProgramName + " | Mode: [" + selected.TrackMode + "]";
             isLoadingFields = false;
             ClearDirty();
 
@@ -1754,25 +1877,99 @@ namespace PublishedAppTracker
 
                     try
                     {
-		                SetupHttpHeaders(url);
-
-                        string source = await httpClient.GetStringAsync(url);
-                        long downloadBytes = System.Text.Encoding.UTF8.GetByteCount(source);
-
-                        CheckResult result = item.ApplyCheck(source, downloadBytes);
-                        item.SaveToFile();
-
-                        switch (result.Status)
+                        if (item.TrackMode == "text")
                         {
-                            case "changed": changed++; break;
-                            case "unchanged": unchanged++; break;
-                            case "new": newChecks++; break;
-                            case "error": errors++; break;
+                            // Text mode — use WebView2 to get rendered text
+                            try
+                            {
+                                await webView.EnsureCoreWebView2Async();
+                                var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+                                EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> navHandler = null;
+                                navHandler = (ns, ne) =>
+                                {
+                                    webView.CoreWebView2.NavigationCompleted -= navHandler;
+                                    tcs.TrySetResult(ne.IsSuccess);
+                                };
+                                webView.CoreWebView2.NavigationCompleted += navHandler;
+                                webView.CoreWebView2.Navigate(url);
+
+                                bool navSuccess = await tcs.Task;
+
+                                if (navSuccess)
+                                {
+                                    // Wait for JS to render
+                                    await System.Threading.Tasks.Task.Delay(2000);
+
+                                    string text = await webView.CoreWebView2.ExecuteScriptAsync(
+                                        "document.body.innerText");
+
+                                    if (text != null && text.StartsWith("\"") && text.EndsWith("\""))
+                                    {
+                                        text = System.Text.Json.JsonSerializer.Deserialize<string>(text);
+                                    }
+
+                                    if (!string.IsNullOrEmpty(text))
+                                    {
+                                        long downloadBytes = System.Text.Encoding.UTF8.GetByteCount(text);
+                                        CheckResult result = item.ApplyCheck(text, downloadBytes);
+                                        item.SaveToFile();
+
+                                        switch (result.Status)
+                                        {
+                                            case "changed": changed++; break;
+                                            case "unchanged": unchanged++; break;
+                                            case "new": newChecks++; break;
+                                            case "error": errors++; break;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        item.TrackStatus = "error";
+                                        item.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                                        item.SaveToFile();
+                                        errors++;
+                                    }
+                                }
+                                else
+                                {
+                                    item.TrackStatus = "error";
+                                    item.TrackURLStatus = "error";
+                                    item.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                                    item.SaveToFile();
+                                    errors++;
+                                }
+                            }
+                            catch (Exception)
+                            {
+                                item.TrackStatus = "error";
+                                item.TrackURLStatus = "error";
+                                item.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                                item.SaveToFile();
+                                errors++;
+                            }
+                        }
+                        else
+                        {
+                            // HTML mode (original)
+                            SetupHttpHeaders(url);
+                            string source = await httpClient.GetStringAsync(url);
+                            long downloadBytes = System.Text.Encoding.UTF8.GetByteCount(source);
+
+                            CheckResult result = item.ApplyCheck(source, downloadBytes);
+                            item.SaveToFile();
+
+                            switch (result.Status)
+                            {
+                                case "changed": changed++; break;
+                                case "unchanged": unchanged++; break;
+                                case "new": newChecks++; break;
+                                case "error": errors++; break;
+                            }
                         }
                     }
                     catch (Exception)
                     {
-                        // HttpClient failed — try WebView2 fallback
+                        // HttpClient failed — try WebView2 fallback (HTML mode only)
                         try
                         {
                             statusFile.Text = "Checking " + current + "/" + total +
@@ -1958,24 +2155,77 @@ namespace PublishedAppTracker
             if (!url.StartsWith("http://") && !url.StartsWith("https://"))
                 url = "https://" + url;
 
+            // Always navigate WebView (needed for both modes)
+            try
+            {
+                await webView.EnsureCoreWebView2Async();
+                webView.CoreWebView2.Navigate(url);
+            }
+            catch (Exception) { }
+
+            // If text mode, wait for WebView to load then extract rendered text
+            if (currentTrackItem != null && currentTrackItem.TrackMode == "text")
+            {
+                try
+                {
+                    // Wait for navigation to complete
+                    var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+                    EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> handler = null;
+                    handler = (s, e) =>
+                    {
+                        webView.CoreWebView2.NavigationCompleted -= handler;
+                        tcs.TrySetResult(e.IsSuccess);
+                    };
+                    webView.CoreWebView2.NavigationCompleted += handler;
+
+                    bool success = await tcs.Task;
+
+                    if (success)
+                    {
+                        // Inject cookie blocker before extracting text
+                        if (blockCookiePopups)
+                            await InjectCookiePopupBlocker();
+
+                        // Wait for JS to render
+                        await System.Threading.Tasks.Task.Delay(1500);
+
+                        // Inject again in case popups appeared after JS rendered
+                        if (blockCookiePopups)
+                            await InjectCookiePopupBlocker();
+
+                        string text = await webView.CoreWebView2.ExecuteScriptAsync(
+                            "document.body.innerText");
+
+                        if (text != null && text.StartsWith("\"") && text.EndsWith("\""))
+                        {
+                            text = System.Text.Json.JsonSerializer.Deserialize<string>(text);
+                        }
+
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            currentSource = text;
+                            DisplaySource(currentSource);
+                            statusFile.Text = "Source: rendered text — " + url;
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    statusFile.Text = "Failed to get rendered text";
+                }
+                return;
+            }
+
+            // HTML mode (original behaviour)
             try
             {
                 SetupHttpHeaders(url);
                 string source = await httpClient.GetStringAsync(url);
                 currentSource = source;
                 DisplaySource(currentSource);
-
-                // Navigate WebView too
-                try
-                {
-                    await webView.EnsureCoreWebView2Async();
-                    webView.CoreWebView2.Navigate(url);
-                }
-                catch (Exception) { }
             }
             catch (Exception)
             {
-                // HttpClient failed — try WebView2 fallback (handles Cloudflare etc.)
                 try
                 {
                     statusFile.Text = "HttpClient blocked, trying WebView2 fallback...";
@@ -5222,9 +5472,25 @@ namespace PublishedAppTracker
                 rightTabs.SelectedIndex = 2;
                 await System.Threading.Tasks.Task.Delay(100);
 
-                // Install into WebView2
+                // Install into WebView2 — remove old version first
                 await webView.EnsureCoreWebView2Async();
+
+                try
+                {
+                    var extensions = await webView.CoreWebView2.Profile.GetBrowserExtensionsAsync();
+                    foreach (var ext in extensions)
+                    {
+                        if (ext.Name.Contains("uBlock", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await ext.RemoveAsync();
+                            break;
+                        }
+                    }
+                }
+                catch (Exception) { }
+
                 var extension = await webView.CoreWebView2.Profile.AddBrowserExtensionAsync(ublockFolder);
+                await extension.EnableAsync(true);
 
                 statusFile.Text = "uBlock Origin installed successfully! Extension ID: " + extension.Id;
                 MessageBox.Show("uBlock Origin installed successfully!\n\n" +
@@ -5233,10 +5499,22 @@ namespace PublishedAppTracker
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error installing uBlock Origin:\n" + ex.Message +
-                    "\n\nYou can manually download from:\nhttps://github.com/gorhill/uBlock/releases\n\n" +
-                    "Extract the uBlock0.chromium folder to:\n" + extensionsPath,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                if (ex.Message.Contains("0x80070032"))
+                {
+                    MessageBox.Show("WebView2 rejected the extension — this is likely because your WebView2 runtime " +
+                        "no longer supports Manifest V2 extensions.\n\n" +
+                        "If uBlock Origin is already working in the browser tab, no action is needed.\n\n" +
+                        "If not, Microsoft has not yet added Manifest V3 extension support to WebView2. " +
+                        "The built-in cookie popup blocker can be used as an alternative.",
+                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                else
+                {
+                    MessageBox.Show("Error installing uBlock Origin:\n" + ex.Message +
+                        "\n\nYou can manually download from:\nhttps://github.com/gorhill/uBlock/releases\n\n" +
+                        "Extract the uBlock0.chromium folder to:\n" + extensionsPath,
+                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
                 statusFile.Text = "Extension install failed: " + ex.Message;
             }
             finally
@@ -5421,6 +5699,62 @@ namespace PublishedAppTracker
         // ============================
         // Browser + Download
         // ============================
+
+        private async void ReloadSourceForCurrentMode()
+        {
+            if (currentTrackItem == null) return;
+
+            if (currentTrackItem.TrackMode == "text")
+            {
+                try
+                {
+                    if (webView.CoreWebView2 != null)
+                    {
+                        // Ensure cookie popups are blocked before extracting text
+                        if (blockCookiePopups)
+                            await InjectCookiePopupBlocker();
+
+                        await System.Threading.Tasks.Task.Delay(500);
+
+                        string text = await webView.CoreWebView2.ExecuteScriptAsync(
+                            "document.body.innerText");
+
+                        if (text != null && text.StartsWith("\"") && text.EndsWith("\""))
+                        {
+                            text = System.Text.Json.JsonSerializer.Deserialize<string>(text);
+                        }
+
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            currentSource = text;
+                            DisplaySource(currentSource);
+                            statusFile.Text = "Source: rendered text mode";
+                        }
+                        else
+                        {
+                            currentSource = "";
+                            sourceView.Document.Blocks.Clear();
+                            statusFile.Text = "No rendered text available — navigate to a page first";
+                        }
+                    }
+                    else
+                    {
+                        statusFile.Text = "WebView2 not ready — navigate to a page first";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    statusFile.Text = "Error getting rendered text: " + ex.Message;
+                }
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(currentTrackItem.TrackURL))
+                {
+                    AutoDownloadSource(currentTrackItem.TrackURL);
+                }
+            }
+        }
 
         /// <summary>
         /// Downloads page source using WebView2 as a fallback when HttpClient fails (e.g. Cloudflare).
@@ -6368,6 +6702,68 @@ namespace PublishedAppTracker
                 // Enables password save confirmation
                 webView.CoreWebView2.Profile.IsPasswordAutosaveEnabled = true;
 
+                webView.CoreWebView2.Profile.IsPasswordAutosaveEnabled = true;
+
+                // Load installed browser extensions
+                try
+                {
+                    var extensions = await webView.CoreWebView2.Profile.GetBrowserExtensionsAsync();
+                    bool ublockFound = false;
+                    foreach (var ext in extensions)
+                    {
+                        if (ext.Name.Contains("uBlock", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ublockFound = true;
+                            break;
+                        }
+                    }
+
+                    if (!ublockFound)
+                    {
+                        string ublockFolder = Path.Combine(extensionsPath, "uBlock0.chromium");
+                        if (Directory.Exists(ublockFolder) &&
+                            File.Exists(Path.Combine(ublockFolder, "manifest.json")))
+                        {
+                            await webView.CoreWebView2.Profile.AddBrowserExtensionAsync(ublockFolder);
+                        }
+                    }
+                }
+                catch (Exception) { }
+
+                // Pre-inject cookie blocker CSS so popups are hidden before page renders
+                cookieBlockerScriptId = await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
+                    (function() {
+                        var style = document.createElement('style');
+                        style.id = '__patCookieBlockerEarlyCSS';
+                        style.textContent = `
+                            [id*='cookie' i], [class*='cookie' i],
+                            [id*='consent' i], [class*='consent' i],
+                            [id*='gdpr' i], [class*='gdpr' i],
+                            [id*='onetrust' i], [class*='onetrust' i],
+                            [id*='CybotCookiebot' i],
+                            .cookie-banner, .cookie-notice, .cookie-popup,
+                            #cookie-law-info-bar, .cli-modal,
+                            [class*='cc-banner' i], [class*='cc-window' i],
+                            [class*='cookiewall' i], [id*='cookiewall' i] {
+                                display: none !important;
+                                visibility: hidden !important;
+                                opacity: 0 !important;
+                                pointer-events: none !important;
+                            }
+                            body, html {
+                                overflow: auto !important;
+                            }
+                        `;
+                        if (document.head) {
+                            document.head.appendChild(style);
+                        } else {
+                            document.addEventListener('DOMContentLoaded', function() {
+                                document.head.appendChild(style);
+                            });
+                        }
+                    })();
+                ");
+
                 // Inject cookie popup blocker after each page loads
                 webView.CoreWebView2.NavigationCompleted += async (s2, e2) =>
                 {
@@ -6972,12 +7368,11 @@ namespace PublishedAppTracker
                         var menuItems = cmArgs.MenuItems;
                         var contextInfo = cmArgs.ContextMenuTarget;
 
-                        // Only show when right-clicking a link
+                        // "Add to Download URL" for file links
                         if (contextInfo.HasLinkUri)
                         {
                             string linkUrl = contextInfo.LinkUri;
 
-                            // Common downloadable file extensions
                             string[] fileExtensions = {
                                 ".exe", ".msi", ".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz",
                                 ".dmg", ".pkg", ".deb", ".rpm", ".appimage", ".apk",
@@ -6991,7 +7386,6 @@ namespace PublishedAppTracker
                             bool isFileLink = false;
                             string lowerUrl = linkUrl.ToLowerInvariant();
 
-                            // Strip query string and fragment for extension check
                             string urlPath = lowerUrl;
                             int queryIdx = urlPath.IndexOf('?');
                             if (queryIdx >= 0) urlPath = urlPath.Substring(0, queryIdx);
@@ -7007,7 +7401,6 @@ namespace PublishedAppTracker
                                 }
                             }
 
-                            // Also match URLs with /download/ in the path
                             if (!isFileLink && (lowerUrl.Contains("/download/") ||
                                 lowerUrl.Contains("/releases/download/") ||
                                 lowerUrl.Contains("sourceforge.net/projects/") ||
@@ -7034,13 +7427,74 @@ namespace PublishedAppTracker
                                     });
                                 };
 
-                                // Insert near the top of the menu
                                 menuItems.Insert(0, webView.CoreWebView2.Environment
                                     .CreateContextMenuItem(
                                         "",
                                         null,
                                         Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Separator));
                                 menuItems.Insert(0, menuItem);
+                            }
+                        }
+
+                        // "Set as Start String" / "Set as Stop String" for selected text
+                        if (contextInfo.HasSelection)
+                        {
+                            string selectedText = contextInfo.SelectionText;
+
+                            if (!string.IsNullOrEmpty(selectedText))
+                            {
+                                // Truncate display text for the menu if very long
+                                string displayText = selectedText.Length > 50
+                                    ? selectedText.Substring(0, 50) + "..."
+                                    : selectedText;
+
+                                var startMenuItem = webView.CoreWebView2.Environment
+                                    .CreateContextMenuItem(
+                                        "Set as Start String: " + displayText,
+                                        null,
+                                        Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
+
+                                startMenuItem.CustomItemSelected += (miSender, miArgs) =>
+                                {
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        editStartString.Text = selectedText;
+                                        MarkDirty();
+                                        statusFile.Text = "Start String set from selection";
+
+                                        // Refresh source view to show highlighting
+                                        if (!string.IsNullOrEmpty(currentSource))
+                                            DisplaySource(currentSource);
+                                    });
+                                };
+
+                                var stopMenuItem = webView.CoreWebView2.Environment
+                                    .CreateContextMenuItem(
+                                        "Set as Stop String: " + displayText,
+                                        null,
+                                        Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
+
+                                stopMenuItem.CustomItemSelected += (miSender, miArgs) =>
+                                {
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        editStopString.Text = selectedText;
+                                        MarkDirty();
+                                        statusFile.Text = "Stop String set from selection";
+
+                                        // Refresh source view to show highlighting
+                                        if (!string.IsNullOrEmpty(currentSource))
+                                            DisplaySource(currentSource);
+                                    });
+                                };
+
+                                menuItems.Insert(0, webView.CoreWebView2.Environment
+                                    .CreateContextMenuItem(
+                                        "",
+                                        null,
+                                        Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Separator));
+                                menuItems.Insert(0, stopMenuItem);
+                                menuItems.Insert(0, startMenuItem);
                             }
                         }
                     };
