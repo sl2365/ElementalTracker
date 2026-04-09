@@ -10,7 +10,7 @@ namespace PublishedAppTracker
     public class TrackItem
     {
         // Core fields
-        public string ProgramName { get; set; } = "";
+        public string TrackName { get; set; } = "";
         public string TrackURL { get; set; } = "";
         public string StartString { get; set; } = "";
         public string StopString { get; set; } = "";
@@ -462,7 +462,7 @@ namespace PublishedAppTracker
         public CheckResult ApplyCheck(string pageSource, long downloadBytes)
         {
             CheckResult result = new CheckResult();
-            result.ProgramName = ProgramName;
+            result.TrackName = TrackName;
 
             // URL worked if we got here
             TrackURLStatus = "ok";
@@ -608,7 +608,7 @@ namespace PublishedAppTracker
                 writer.WriteStartElement("AppTrack");
 
                 writer.WriteStartElement("Track");
-                writer.WriteElementString("ProgramName", ProgramName ?? "");
+                writer.WriteElementString("TrackName", TrackName ?? "");
                 writer.WriteElementString("TrackURL", TrackURL ?? "");
                 writer.WriteElementString("StartString", StartString ?? "");
                 writer.WriteElementString("StopString", StopString ?? "");
@@ -654,7 +654,7 @@ namespace PublishedAppTracker
                 if (track == null)
                     return item;
 
-                item.ProgramName = GetNodeText(track, "ProgramName");
+                item.TrackName = GetNodeText(track, "TrackName");
                 item.TrackURL = GetNodeText(track, "TrackURL");
                 item.StartString = GetNodeText(track, "StartString");
                 item.StopString = GetNodeText(track, "StopString");
@@ -700,7 +700,7 @@ namespace PublishedAppTracker
 
     public class CheckResult
     {
-        public string ProgramName { get; set; } = "";
+        public string TrackName { get; set; } = "";
         public string Status { get; set; } = "";
         public string Note { get; set; } = "";
         public string Hash { get; set; } = "";

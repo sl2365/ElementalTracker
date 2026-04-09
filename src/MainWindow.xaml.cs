@@ -81,6 +81,7 @@ namespace PublishedAppTracker
         private string currentSource = "";
         private List<int> searchHitPositions = new List<int>();
         private int currentSearchIndex = -1;
+        private TextBox webAddressBar;
 
 		// Window settings
         private WindowSettings windowSettings;
@@ -459,11 +460,11 @@ namespace PublishedAppTracker
             trackToolBar.Items.Add(new Separator());
 
             btnTrackMode = new Button();
-            btnTrackMode.Content = "</ >";
+            btnTrackMode.Content = "</>";
             btnTrackMode.FontFamily = SystemFonts.MessageFontFamily;
             btnTrackMode.FontSize = 12;
             btnTrackMode.FontWeight = FontWeights.Bold;
-            btnTrackMode.Padding = new Thickness(6, 2, 6, 2);
+            btnTrackMode.Padding = new Thickness(6, 1, 6, 3);
             btnTrackMode.Margin = new Thickness(1, 2, 1, 2);
             btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
             btnTrackMode.Click += (s, ev) =>
@@ -473,7 +474,7 @@ namespace PublishedAppTracker
                 if (currentTrackItem.TrackMode == "text")
                 {
                     currentTrackItem.TrackMode = "html";
-                    btnTrackMode.Content = "</ >";
+                    btnTrackMode.Content = "</>";
                     btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
                     statusFile.Text = "Track mode: HTML source";
                 }
@@ -512,7 +513,7 @@ namespace PublishedAppTracker
             StackPanel fieldsPanel = new StackPanel();
             fieldsPanel.Margin = new Thickness(8);
 
-            editName = AddSettingsField(fieldsPanel, "Program Name:");
+            editName = AddSettingsField(fieldsPanel, "Track Name:");
 
             // Track URL with buttons
             TextBlock urlLabel = new TextBlock();
@@ -778,6 +779,65 @@ namespace PublishedAppTracker
 			sourceView.Foreground = new SolidColorBrush(Color.FromRgb(40, 80, 180));
 			sourceView.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
 			sourceView.AutoWordSelection = false;
+            // Context menu for adding selected text to Start/Stop strings
+            ContextMenu sourceContextMenu = new ContextMenu();
+
+            MenuItem menuCopy = new MenuItem();
+            menuCopy.Header = "Copy";
+            menuCopy.Click += (s, ev) =>
+            {
+                if (!sourceView.Selection.IsEmpty)
+                    Clipboard.SetText(sourceView.Selection.Text);
+            };
+            sourceContextMenu.Items.Add(menuCopy);
+
+            sourceContextMenu.Items.Add(new Separator());
+
+            MenuItem menuAddStartString = new MenuItem();
+            menuAddStartString.Header = "Add to Start String";
+            menuAddStartString.Click += (s, ev) =>
+            {
+                string selected = sourceView.Selection.Text.Trim();
+                if (string.IsNullOrEmpty(selected)) return;
+
+                if (string.IsNullOrWhiteSpace(editStartString.Text))
+                    editStartString.Text = selected;
+                else
+                    editStartString.Text += selected;
+
+                MarkDirty();
+                statusFile.Text = "Added to Start String: " + selected;
+            };
+            sourceContextMenu.Items.Add(menuAddStartString);
+
+            MenuItem menuAddStopString = new MenuItem();
+            menuAddStopString.Header = "Add to Stop String";
+            menuAddStopString.Click += (s, ev) =>
+            {
+                string selected = sourceView.Selection.Text.Trim();
+                if (string.IsNullOrEmpty(selected)) return;
+
+                if (string.IsNullOrWhiteSpace(editStopString.Text))
+                    editStopString.Text = selected;
+                else
+                    editStopString.Text += selected;
+
+                MarkDirty();
+                statusFile.Text = "Added to Stop String: " + selected;
+            };
+            sourceContextMenu.Items.Add(menuAddStopString);
+
+            // Only enable Add options when text is selected
+            sourceContextMenu.Opened += (s, ev) =>
+            {
+                bool hasSelection = !sourceView.Selection.IsEmpty &&
+                                    !string.IsNullOrWhiteSpace(sourceView.Selection.Text);
+                menuCopy.IsEnabled = hasSelection;
+                menuAddStartString.IsEnabled = hasSelection;
+                menuAddStopString.IsEnabled = hasSelection;
+            };
+
+            sourceView.ContextMenu = sourceContextMenu;
 			sourcePanel.Children.Add(sourceView);
 
 			sourceTab.Content = sourcePanel;
@@ -943,15 +1003,16 @@ namespace PublishedAppTracker
             DockPanel webPanel = new DockPanel();
 
             // ---- TOP TOOLBAR: Search engine + address bar + nav buttons ----
-            ToolBarTray webTopToolBarTray = new ToolBarTray();
-            DockPanel.SetDock(webTopToolBarTray, Dock.Top);
+            DockPanel webNavBar = new DockPanel();
+            webNavBar.Background = new SolidColorBrush(currentTheme.ToolbarBackground);
+            webNavBar.Margin = new Thickness(0);
+            DockPanel.SetDock(webNavBar, Dock.Top);
 
-            ToolBar webTopToolBar = new ToolBar();
-            webTopToolBar.Band = 0;
-            webTopToolBar.BandIndex = 0;
-
+            // Left side: search engine selector
             ComboBox searchEngineCombo = new ComboBox();
             searchEngineCombo.Width = 110;
+            searchEngineCombo.Margin = new Thickness(4, 4, 2, 4);
+            searchEngineCombo.VerticalAlignment = VerticalAlignment.Center;
             searchEngineCombo.Items.Add("DuckDuckGo");
             searchEngineCombo.Items.Add("Google");
             searchEngineCombo.Items.Add("Bing");
@@ -959,55 +1020,13 @@ namespace PublishedAppTracker
             searchEngineCombo.Items.Add("Brave");
             searchEngineCombo.Items.Add("Yahoo");
             searchEngineCombo.SelectedIndex = 0;
-            webTopToolBar.Items.Add(searchEngineCombo);
+            DockPanel.SetDock(searchEngineCombo, Dock.Left);
+            webNavBar.Children.Add(searchEngineCombo);
 
-            TextBox webSearchBox = new TextBox();
-            webSearchBox.Width = 300;
-            webSearchBox.ToolTip = "Enter a URL or search term, then press Enter or click the search button";
-            webTopToolBar.Items.Add(webSearchBox);
-
-            Button btnWebGo = CreateToolBarButton("\uE721", "Search or navigate to URL", null);
-            webTopToolBar.Items.Add(btnWebGo);
-
-            webTopToolBar.Items.Add(new Separator());
-
-            Button btnWebBack = CreateToolBarButton("\xe760", "Back", null);
-            btnWebBack.Click += (s, ev) =>
-            {
-                try { if (webView.CoreWebView2 != null && webView.CanGoBack) webView.GoBack(); }
-                catch (Exception) { }
-            };
-            webTopToolBar.Items.Add(btnWebBack);
-
-            Button btnWebForward = CreateToolBarButton("\xe761", "Forward", null);
-            btnWebForward.Click += (s, ev) =>
-            {
-                try { if (webView.CoreWebView2 != null && webView.CanGoForward) webView.GoForward(); }
-                catch (Exception) { }
-            };
-            webTopToolBar.Items.Add(btnWebForward);
-
-            Button btnWebHome = CreateToolBarButton("\xe80f", "Return to current track URL", null);
-            btnWebHome.Click += (s, ev) =>
-            {
-                try
-                {
-                    if (webView.CoreWebView2 != null && currentTrackItem != null &&
-                        !string.IsNullOrWhiteSpace(currentTrackItem.TrackURL))
-                    {
-                        string url = currentTrackItem.TrackURL;
-                        if (!url.StartsWith("http://") && !url.StartsWith("https://"))
-                            url = "https://" + url;
-                        webView.CoreWebView2.Navigate(url);
-                    }
-                }
-                catch (Exception) { }
-            };
-            webTopToolBar.Items.Add(btnWebHome);
-
-            webTopToolBar.Items.Add(new Separator());
-
+            // Right side: buttons (dock right, in reverse order)
             Button btnSetTrackURL = CreateToolBarButton("\uE71B", "Set Track URL from current page", null);
+            btnSetTrackURL.Margin = new Thickness(2, 4, 4, 4);
+            btnSetTrackURL.VerticalAlignment = VerticalAlignment.Center;
             btnSetTrackURL.Click += (s, ev) =>
             {
                 try
@@ -1025,14 +1044,83 @@ namespace PublishedAppTracker
                 }
                 catch (Exception) { }
             };
-            webTopToolBar.Items.Add(btnSetTrackURL);
+            DockPanel.SetDock(btnSetTrackURL, Dock.Right);
+            webNavBar.Children.Add(btnSetTrackURL);
 
-            webTopToolBarTray.ToolBars.Add(webTopToolBar);
+            Separator navSep2 = new Separator();
+            navSep2.Width = 1;
+            navSep2.Margin = new Thickness(4, 4, 4, 4);
+            DockPanel.SetDock(navSep2, Dock.Right);
+            webNavBar.Children.Add(navSep2);
+
+            Button btnWebHome = CreateToolBarButton("\xe80f", "Return to current track URL", null);
+            btnWebHome.Margin = new Thickness(2, 4, 2, 4);
+            btnWebHome.VerticalAlignment = VerticalAlignment.Center;
+            btnWebHome.Click += (s, ev) =>
+            {
+                try
+                {
+                    if (webView.CoreWebView2 != null && currentTrackItem != null &&
+                        !string.IsNullOrWhiteSpace(currentTrackItem.TrackURL))
+                    {
+                        string url = currentTrackItem.TrackURL;
+                        if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+                            url = "https://" + url;
+                        webView.CoreWebView2.Navigate(url);
+                    }
+                }
+                catch (Exception) { }
+            };
+            DockPanel.SetDock(btnWebHome, Dock.Right);
+            webNavBar.Children.Add(btnWebHome);
+
+            Button btnWebForward = CreateToolBarButton("\xe761", "Forward", null);
+            btnWebForward.Margin = new Thickness(2, 4, 2, 4);
+            btnWebForward.VerticalAlignment = VerticalAlignment.Center;
+            btnWebForward.Click += (s, ev) =>
+            {
+                try { if (webView.CoreWebView2 != null && webView.CanGoForward) webView.GoForward(); }
+                catch (Exception) { }
+            };
+            DockPanel.SetDock(btnWebForward, Dock.Right);
+            webNavBar.Children.Add(btnWebForward);
+
+            Button btnWebBack = CreateToolBarButton("\xe760", "Back", null);
+            btnWebBack.Margin = new Thickness(2, 4, 2, 4);
+            btnWebBack.VerticalAlignment = VerticalAlignment.Center;
+            btnWebBack.Click += (s, ev) =>
+            {
+                try { if (webView.CoreWebView2 != null && webView.CanGoBack) webView.GoBack(); }
+                catch (Exception) { }
+            };
+            DockPanel.SetDock(btnWebBack, Dock.Right);
+            webNavBar.Children.Add(btnWebBack);
+
+            Separator navSep1 = new Separator();
+            navSep1.Width = 1;
+            navSep1.Margin = new Thickness(4, 4, 4, 4);
+            DockPanel.SetDock(navSep1, Dock.Right);
+            webNavBar.Children.Add(navSep1);
+
+            // Go button docked right of the address bar
+            Button btnWebGo = CreateToolBarButton("\uE721", "Search or navigate to URL", null);
+            btnWebGo.Margin = new Thickness(2, 4, 2, 4);
+            btnWebGo.VerticalAlignment = VerticalAlignment.Center;
+            DockPanel.SetDock(btnWebGo, Dock.Right);
+            webNavBar.Children.Add(btnWebGo);
+
+            // Address bar fills remaining space
+            webAddressBar = new TextBox();
+            webAddressBar.Margin = new Thickness(2, 4, 2, 4);
+            webAddressBar.VerticalAlignment = VerticalAlignment.Center;
+            webAddressBar.VerticalContentAlignment = VerticalAlignment.Center;
+            webAddressBar.ToolTip = "Enter a URL or search term, then press Enter or click Go";
+            webNavBar.Children.Add(webAddressBar);
 
             // Search/navigate action
             Action doWebSearch = () =>
             {
-                string input = webSearchBox.Text.Trim();
+                string input = webAddressBar.Text.Trim();
                 if (string.IsNullOrEmpty(input)) return;
 
                 string navigateUrl;
@@ -1087,7 +1175,7 @@ namespace PublishedAppTracker
             };
 
             btnWebGo.Click += (s, ev) => doWebSearch();
-            webSearchBox.KeyDown += (s, ev) =>
+            webAddressBar.KeyDown += (s, ev) =>
             {
                 if (ev.Key == System.Windows.Input.Key.Enter)
                     doWebSearch();
@@ -1118,6 +1206,8 @@ namespace PublishedAppTracker
             webBottomToolBar.Items.Add(new Separator());
 
             Button btnClearCookies = CreateToolBarButton("🍪", "Delete all cookies", ClearCookies_Click);
+            btnClearCookies.FontSize = 15;
+		    btnClearCookies.Padding = new Thickness(6, 0, 6, 1);
             btnClearCookies.FontFamily = SystemFonts.MessageFontFamily;
             webBottomToolBar.Items.Add(btnClearCookies);
 
@@ -1246,13 +1336,41 @@ namespace PublishedAppTracker
 
             // ---- Add to DockPanel in correct order ----
             // Top toolbar first (docked top)
-            webPanel.Children.Add(webTopToolBarTray);
+            webPanel.Children.Add(webNavBar);
             // Bottom toolbar second (docked bottom)
             webPanel.Children.Add(webBottomToolBarTray);
 
             // WebView2 last — it fills the remaining space
             webView = new Microsoft.Web.WebView2.Wpf.WebView2();
             webPanel.Children.Add(webView);
+
+            // Update address bar when navigation occurs
+            webView.SourceChanged += (s, ev) =>
+            {
+                try
+                {
+                    string currentUrl = webView.Source?.ToString() ?? "";
+                    if (currentUrl != "about:blank" && !string.IsNullOrEmpty(currentUrl))
+                    {
+                        webAddressBar.Text = currentUrl;
+                    }
+                }
+                catch (Exception) { }
+            };
+
+            // Select all text when address bar gets focus (like a real browser)
+            webAddressBar.GotFocus += (s, ev) =>
+            {
+                webAddressBar.SelectAll();
+            };
+            webAddressBar.PreviewMouseLeftButtonDown += (s, ev) =>
+            {
+                if (!webAddressBar.IsKeyboardFocusWithin)
+                {
+                    webAddressBar.Focus();
+                    ev.Handled = true;
+                }
+            };
 
             webTab.Content = webPanel;
 			rightTabs.Items.Add(webTab);
@@ -1693,7 +1811,7 @@ namespace PublishedAppTracker
 
             isLoadingFields = true;
 
-            editName.Text = selected.ProgramName;
+            editName.Text = selected.TrackName;
             editTrackURL.Text = selected.TrackURL;
             editStartString.Text = selected.StartString;
             editStopString.Text = selected.StopString;
@@ -1714,15 +1832,15 @@ namespace PublishedAppTracker
                 }
                 else
                 {
-                    btnTrackMode.Content = "</ >";
+                    btnTrackMode.Content = "</>";
                     btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
                 }
             }
-			statusFile.Text = "Track: " + selected.ProgramName + " | Mode: [" + selected.TrackMode + "]";
+			statusFile.Text = "Track: " + selected.TrackName + " | Mode: [" + selected.TrackMode + "]";
             isLoadingFields = false;
             ClearDirty();
 
-            statusFile.Text = "Track: " + selected.ProgramName +
+            statusFile.Text = "Track: " + selected.TrackName +
                 " (" + Path.GetFileName(selected.FilePath) + ")";
 
             // Auto-download source if track has a URL
@@ -1862,7 +1980,7 @@ namespace PublishedAppTracker
                 {
                     current++;
                     statusFile.Text = "Checking " + current + "/" + total +
-                        ": " + item.ProgramName;
+                        ": " + item.TrackName;
                     statusProgress.Value = current;
 
                     if (string.IsNullOrWhiteSpace(item.TrackURL))
@@ -1977,7 +2095,7 @@ namespace PublishedAppTracker
                         try
                         {
                             statusFile.Text = "Checking " + current + "/" + total +
-                                ": " + item.ProgramName + " (WebView2 fallback)";
+                                ": " + item.TrackName + " (WebView2 fallback)";
 
                             string source = await DownloadViaWebView(url);
                             if (!string.IsNullOrEmpty(source))
@@ -2420,7 +2538,7 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrWhiteSpace(newName))
             {
-                MessageBox.Show("Program Name cannot be empty.", "PAT v7",
+                MessageBox.Show("Track Name cannot be empty.", "PAT v7",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -2429,7 +2547,7 @@ namespace PublishedAppTracker
             string oldName = Path.GetFileNameWithoutExtension(selected.FilePath);
 
             // Update all fields from UI
-            selected.ProgramName = newName;
+            selected.TrackName = newName;
             selected.TrackURL = editTrackURL.Text;
             selected.StartString = editStartString.Text;
             selected.StopString = editStopString.Text;
@@ -2514,7 +2632,7 @@ namespace PublishedAppTracker
             }
 
             MessageBoxResult result = MessageBox.Show(
-                "Delete track '" + selected.ProgramName + "'?\n\n" +
+                "Delete track '" + selected.TrackName + "'?\n\n" +
                 "File: " + Path.GetFileName(selected.FilePath),
                 "Delete Track",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning);
@@ -2537,7 +2655,7 @@ namespace PublishedAppTracker
 
                     RefreshCategoryTree();
                     ClearTrackFields();
-                    statusFile.Text = "Deleted: " + selected.ProgramName;
+                    statusFile.Text = "Deleted: " + selected.TrackName;
                 }
                 catch (Exception ex)
                 {
@@ -2566,7 +2684,7 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrWhiteSpace(name))
             {
-                name = ShowInputDialog("New Track", "Enter program name:");
+                name = ShowInputDialog("New Track", "Enter Track Name:");
                 if (string.IsNullOrWhiteSpace(name))
                     return;
             }
@@ -2591,7 +2709,7 @@ namespace PublishedAppTracker
             }
 
             TrackItem newItem = new TrackItem();
-            newItem.ProgramName = name;
+            newItem.TrackName = name;
             newItem.FilePath = filePath;
             newItem.TrackURL = editTrackURL.Text;
             newItem.StartString = editStartString.Text;
@@ -2640,7 +2758,7 @@ namespace PublishedAppTracker
             if (currentTrackItem != null && !string.IsNullOrEmpty(currentTrackItem.LatestVersion))
             {
                 // Push current UI values into the model before saving
-                currentTrackItem.ProgramName = editName.Text;
+                currentTrackItem.TrackName = editName.Text;
                 currentTrackItem.TrackURL = editTrackURL.Text;
                 currentTrackItem.StartString = editStartString.Text;
                 currentTrackItem.StopString = editStopString.Text;
@@ -4036,6 +4154,7 @@ namespace PublishedAppTracker
 			                        <Border x:Name=""TabBorder""
 			                                Background=""{TemplateBinding Background}""
 			                                BorderBrush=""" + tabSplitterHex + @"""
+
 			                                BorderThickness=""1,1,1,0""
 			                                Padding=""8,4,8,4""
 			                                Margin=""0,0,2,0""
@@ -4294,6 +4413,134 @@ namespace PublishedAppTracker
 			    // Fallback: at least color the background
 			    this.Resources[SystemColors.ScrollBarBrushKey] = scrollBg;
 			}
+
+            // Theme the WebView nav bar
+            foreach (TabItem ti in rightTabs.Items)
+            {
+                if (ti.Content is DockPanel dp)
+                {
+                    foreach (var child in dp.Children)
+                    {
+                        if (child is DockPanel navBar && !(child is ToolBarTray))
+                        {
+                            navBar.Background = new SolidColorBrush(theme.ToolbarBackground);
+                            foreach (var navChild in navBar.Children)
+                            {
+                                if (navChild is TextBox tb)
+                                {
+                                    tb.Background = new SolidColorBrush(theme.TextBoxBackground);
+                                    tb.Foreground = new SolidColorBrush(theme.TextBoxForeground);
+                                    tb.CaretBrush = new SolidColorBrush(theme.TextBoxForeground);
+                                }
+                                else if (navChild is TextBlock txt)
+                                    txt.Foreground = new SolidColorBrush(theme.ToolbarForeground);
+                                else if (navChild is ComboBox cmb)
+                                {
+                                    string cmbBgHex = ThemeSettings.ColorToHex(theme.ComboBoxBackground);
+                                    string cmbFgHex = ThemeSettings.ColorToHex(theme.ComboBoxForeground);
+                                    string cmbBorderHex = ThemeSettings.ColorToHex(theme.ComboBoxBorder);
+                                    string cmbBtnBgHex = ThemeSettings.ColorToHex(theme.ComboBoxButtonBackground);
+                                    string cmbBtnFgHex = ThemeSettings.ColorToHex(theme.ComboBoxButtonForeground);
+
+                                    string comboXaml = @"
+                                    <Style xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+                                           xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+                                           TargetType=""ComboBox"">
+                                        <Setter Property=""Foreground"" Value=""" + cmbFgHex + @""" />
+                                        <Setter Property=""Background"" Value=""" + cmbBgHex + @""" />
+                                        <Setter Property=""BorderBrush"" Value=""" + cmbBorderHex + @""" />
+                                        <Setter Property=""ItemContainerStyle"">
+                                            <Setter.Value>
+                                                <Style TargetType=""ComboBoxItem"">
+                                                    <Setter Property=""Foreground"" Value=""" + cmbFgHex + @""" />
+                                                    <Setter Property=""Background"" Value=""" + cmbBgHex + @""" />
+                                                    <Style.Triggers>
+                                                        <Trigger Property=""IsHighlighted"" Value=""True"">
+                                                            <Setter Property=""Background"" Value=""" + cmbBtnBgHex + @""" />
+                                                            <Setter Property=""Foreground"" Value=""" + cmbBtnFgHex + @""" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Setter Property=""Template"">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType=""ComboBox"">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width=""*"" />
+                                                            <ColumnDefinition Width=""20"" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border x:Name=""Border""
+                                                                Grid.ColumnSpan=""2""
+                                                                Background=""{TemplateBinding Background}""
+                                                                BorderBrush=""{TemplateBinding BorderBrush}""
+                                                                BorderThickness=""1""
+                                                                CornerRadius=""2"" />
+                                                        <ContentPresenter Grid.Column=""0""
+                                                                          Margin=""4,2,0,2""
+                                                                          VerticalAlignment=""Center""
+                                                                          HorizontalAlignment=""Left""
+                                                                          Content=""{TemplateBinding SelectionBoxItem}""
+                                                                          ContentTemplate=""{TemplateBinding SelectionBoxItemTemplate}"" />
+                                                        <Border Grid.Column=""1""
+                                                                Background=""" + cmbBtnBgHex + @"""
+                                                                CornerRadius=""0,2,2,0""
+                                                                BorderThickness=""0"">
+                                                            <TextBlock Text=""&#xE70D;""
+                                                                       FontFamily=""Segoe Fluent Icons""
+                                                                       FontSize=""10""
+                                                                       Foreground=""" + cmbBtnFgHex + @"""
+                                                                       HorizontalAlignment=""Center""
+                                                                       VerticalAlignment=""Center"" />
+                                                        </Border>
+                                                        <ToggleButton Grid.ColumnSpan=""2""
+                                                                      IsChecked=""{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}""
+                                                                      Background=""Transparent""
+                                                                      BorderThickness=""0""
+                                                                      Focusable=""False""
+                                                                      ClickMode=""Press"">
+                                                            <ToggleButton.Template>
+                                                                <ControlTemplate TargetType=""ToggleButton"">
+                                                                    <Border Background=""Transparent"" />
+                                                                </ControlTemplate>
+                                                            </ToggleButton.Template>
+                                                        </ToggleButton>
+                                                        <Popup x:Name=""PART_Popup""
+                                                               IsOpen=""{TemplateBinding IsDropDownOpen}""
+                                                               Placement=""Bottom""
+                                                               AllowsTransparency=""True""
+                                                               Focusable=""False""
+                                                               PopupAnimation=""Slide"">
+                                                            <Border MinWidth=""{TemplateBinding ActualWidth}""
+                                                                    MaxHeight=""{TemplateBinding MaxDropDownHeight}""
+                                                                    Background=""" + cmbBgHex + @"""
+                                                                    BorderBrush=""" + cmbBorderHex + @"""
+                                                                    BorderThickness=""1""
+                                                                    CornerRadius=""2"">
+                                                                <ScrollViewer>
+                                                                    <StackPanel IsItemsHost=""True"" />
+                                                                </ScrollViewer>
+                                                            </Border>
+                                                        </Popup>
+                                                    </Grid>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>";
+
+                                    try
+                                    {
+                                        Style comboStyle = (Style)System.Windows.Markup.XamlReader.Parse(comboXaml);
+                                        cmb.Style = comboStyle;
+                                    }
+                                    catch (Exception) { }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
 		    // Rebuild list columns to pick up new StatusToColorConverter brushes
 		    RebuildColumns();
@@ -5354,7 +5601,7 @@ namespace PublishedAppTracker
             ClearTrackFields();
 
             // Prompt for name and create
-            string name = ShowInputDialog("New Track", "Enter program name:");
+            string name = ShowInputDialog("New Track", "Enter Track Name:");
             if (string.IsNullOrWhiteSpace(name))
                 return;
 
@@ -5410,7 +5657,7 @@ namespace PublishedAppTracker
             {
                 // Create a copy with current field values
                 TrackItem copy = new TrackItem();
-                copy.ProgramName = newName;
+                copy.TrackName = newName;
                 copy.FilePath = newPath;
                 copy.TrackURL = editTrackURL.Text;
                 copy.StartString = editStartString.Text;
@@ -6006,7 +6253,7 @@ namespace PublishedAppTracker
                 TrackItem selected = currentTrackItem;
                 if (selected != null)
                 {
-                    selected.ProgramName = editName.Text;
+                    selected.TrackName = editName.Text;
                     selected.TrackURL = editTrackURL.Text;
                     selected.StartString = editStartString.Text;
                     selected.StopString = editStopString.Text;
@@ -6036,7 +6283,7 @@ namespace PublishedAppTracker
                         selected.LatestVersion = "";
                     }
                     UpdateVersionDisplay();
-                    statusFile.Text = "Checked: " + result.ProgramName +
+                    statusFile.Text = "Checked: " + result.TrackName +
                         " — " + result.Status.ToUpper() + " — " + result.Note;
                     editReleaseDate.Text = selected.ReleaseDate;
                 }
@@ -6078,7 +6325,7 @@ namespace PublishedAppTracker
                         TrackItem selected = currentTrackItem;
                         if (selected != null)
                         {
-                            selected.ProgramName = editName.Text;
+                            selected.TrackName = editName.Text;
                             selected.TrackURL = editTrackURL.Text;
                             selected.StartString = editStartString.Text;
                             selected.StopString = editStopString.Text;
@@ -6103,7 +6350,7 @@ namespace PublishedAppTracker
                                 selected.LatestVersion = "";
                             }
                             UpdateVersionDisplay();
-                            statusFile.Text = "Checked (WebView2): " + result.ProgramName +
+                            statusFile.Text = "Checked (WebView2): " + result.TrackName +
                                 " — " + result.Status.ToUpper() + " — " + result.Note;
                             editReleaseDate.Text = selected.ReleaseDate;
                         }

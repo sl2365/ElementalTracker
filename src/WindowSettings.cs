@@ -52,7 +52,7 @@ namespace PublishedAppTracker
         public static List<ColumnSetting> GetDefaultColumns()
         {
             List<ColumnSetting> defaults = new List<ColumnSetting>();
-            defaults.Add(new ColumnSetting { Header = "Name", Binding = "ProgramName", Width = 225, Visible = true, DisplayIndex = 0 });
+            defaults.Add(new ColumnSetting { Header = "Name", Binding = "TrackName", Width = 225, Visible = true, DisplayIndex = 0 });
             defaults.Add(new ColumnSetting { Header = "Track URL", Binding = "TrackURL", Width = 130, Visible = true, DisplayIndex = 1 });
             defaults.Add(new ColumnSetting { Header = "Start String", Binding = "StartString", Width = 100, Visible = true, DisplayIndex = 2 });
             defaults.Add(new ColumnSetting { Header = "Stop String", Binding = "StopString", Width = 100, Visible = true, DisplayIndex = 3 });
