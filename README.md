@@ -20,7 +20,7 @@ If any of your tracked URLs start failing because the server rejects your User-A
 
 ## Changelog
 
-### v7.0.3.475 — 2026.04.08
+### v7.0.3.476 — 2026.04.08
 - Toolbar overflow button restored
 - Added WebView toolbar button to add current page to Track URL field
 - Added new check function taht search for plain text in Source tab
@@ -28,6 +28,7 @@ If any of your tracked URLs start failing because the server rejects your User-A
    Download URL is context sensitive, ie, works on file links only
 - Window title now includes auto-version info
 - Some other minor enhancements: Save buttons disabled by default, only enabled when Track Settings changes are detected
+- Disabled unused menutitems to alert users they aren't in use yet
 
 
 ### v7.0.0.0 — 2026.04.07 (sl23)
