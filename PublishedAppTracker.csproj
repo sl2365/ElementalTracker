@@ -12,8 +12,8 @@
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
 	<Version>7.0.3</Version>                       <!-- NuGet / product version -->
 	<AssemblyVersion>7.0.3</AssemblyVersion>     <!-- assembly identity -->
-	<FileVersion>7.0.3.475</FileVersion>             <!-- file version shown in Explorer -->
-	<InformationalVersion>7.0.3.475</InformationalVersion> <!-- pretty/product string -->
+	<FileVersion>7.0.3.476</FileVersion>             <!-- file version shown in Explorer -->
+	<InformationalVersion>7.0.3.476</InformationalVersion> <!-- pretty/product string -->
 	<Company>sl23</Company>
 	<Product>Published App Tracker</Product>
 	<Authors>sl23</Authors>

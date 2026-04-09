@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="Published App Tracker v7.0" Width="1200" Height="800"
+        Title="Published App Tracker v7.0.3" Width="1200" Height="800"
         MinWidth="1100" MinHeight="500"
         WindowStartupLocation="Manual">
 
@@ -18,18 +18,19 @@
                 <Separator />
                 <MenuItem Header="E_xit" Click="Exit_Click" />
             </MenuItem>
+            <!-- REMOVE:  IsEnabled="False" Opacity="0.4" TO ENABLE ITEMS -->
             <MenuItem Header="_View">
-                <MenuItem Header="Columns" />
+                <MenuItem Header="Columns" IsEnabled="False" Opacity="0.4" />
             </MenuItem>
             <MenuItem Header="_Tools">
-                <MenuItem Header="Open SPSBuilder" />
+                <MenuItem Header="Open SPSBuilder" IsEnabled="False" Opacity="0.4" />
                 <Separator />
                 <MenuItem Header="Install/Update uBlock Origin" Click="InstallUBlock_Click" />
                 <MenuItem Header="List Extensions" Click="ListExtensions_Click" />
             </MenuItem>
             <MenuItem Header="_Config">
-                <MenuItem Header="Theme..." />
-                <MenuItem Header="Select Suites..." />
+                <MenuItem Header="Theme..." IsEnabled="False" Opacity="0.4" />
+                <MenuItem Header="Select Suites..." IsEnabled="False" Opacity="0.4" />
             </MenuItem>
         </Menu>
 

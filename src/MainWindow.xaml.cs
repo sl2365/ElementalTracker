@@ -97,6 +97,12 @@ namespace PublishedAppTracker
         {
             InitializeComponent();
 
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            var attr = (System.Reflection.AssemblyInformationalVersionAttribute)
+                Attribute.GetCustomAttribute(asm, 
+                    typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+            this.Title = "Published App Tracker v" + (attr != null ? attr.InformationalVersion : "7");
+
             appDir = Path.GetDirectoryName(
                 System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
 
@@ -483,8 +489,6 @@ namespace PublishedAppTracker
                 ReloadSourceForCurrentMode();
             };
             trackToolBar.Items.Add(btnTrackMode);
-
-            trackToolBar.Items.Add(new Separator());
 
 			Button btnDownloadToolbar = CreateToolBarButton("\uE896", "Download page source", DownloadPage_Click);
             trackToolBar.Items.Add(btnDownloadToolbar);
@@ -4595,23 +4599,88 @@ namespace PublishedAppTracker
 					}
 				}
 
-		        // Override the ToolBar template
-		        ControlTemplate tbTemplate = new ControlTemplate(typeof(ToolBar));
-		        FrameworkElementFactory tbBorder = new FrameworkElementFactory(typeof(Border));
-		        tbBorder.SetBinding(Border.BackgroundProperty,
-		            new System.Windows.Data.Binding("Background")
-		            {
-		                RelativeSource = new System.Windows.Data.RelativeSource(
-		                    System.Windows.Data.RelativeSourceMode.TemplatedParent)
-		            });
-		        tbBorder.SetValue(Border.PaddingProperty, new Thickness(2));
+		        // Override the ToolBar template — preserve overflow button
+		        string tbBgHex = ThemeSettings.ColorToHex(bg.Color);
+		        string tbFgHex = ThemeSettings.ColorToHex(fg.Color);
+		        string hoverHex = ThemeSettings.ColorToHex(hoverColor);
 
-		        FrameworkElementFactory tbPanel = new FrameworkElementFactory(typeof(ToolBarPanel));
-		        tbPanel.SetValue(ToolBarPanel.IsItemsHostProperty, true);
-		        tbBorder.AppendChild(tbPanel);
+		        string toolBarXaml = @"
+		        <ControlTemplate xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+		                         xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+		                         TargetType=""ToolBar"">
+		            <Border Background=""{TemplateBinding Background}"" Padding=""2"">
+		                <DockPanel>
+		                    <ToggleButton x:Name=""OverflowButton""
+		                                  DockPanel.Dock=""Right""
+		                                  IsChecked=""{Binding IsOverflowOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}""
+		                                  ClickMode=""Press""
+		                                  Visibility=""Collapsed""
+		                                  Cursor=""Hand"">
+		                        <ToggleButton.Template>
+		                            <ControlTemplate TargetType=""ToggleButton"">
+		                                <Border x:Name=""OverflowBorder""
+		                                        Background=""Transparent""
+		                                        Padding=""4,2""
+		                                        CornerRadius=""2"">
+		                                    <TextBlock Text=""&#xE712;""
+		                                               FontFamily=""Segoe Fluent Icons""
+		                                               FontSize=""12""
+		                                               Foreground=""" + tbFgHex + @"""
+		                                               VerticalAlignment=""Center"" />
+		                                </Border>
+		                                <ControlTemplate.Triggers>
+		                                    <Trigger Property=""IsMouseOver"" Value=""True"">
+		                                        <Setter TargetName=""OverflowBorder"" Property=""Background"" Value=""" + hoverHex + @""" />
+		                                    </Trigger>
+		                                    <Trigger Property=""IsChecked"" Value=""True"">
+		                                        <Setter TargetName=""OverflowBorder"" Property=""Background"" Value=""" + hoverHex + @""" />
+		                                    </Trigger>
+		                                </ControlTemplate.Triggers>
+		                            </ControlTemplate>
+		                        </ToggleButton.Template>
+		                    </ToggleButton>
+		                    <Popup x:Name=""OverflowPopup""
+		                           IsOpen=""{Binding IsOverflowOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}""
+		                           Placement=""Bottom""
+		                           PlacementTarget=""{Binding ElementName=OverflowButton}""
+		                           StaysOpen=""False""
+		                           AllowsTransparency=""True""
+		                           Focusable=""False""
+		                           PopupAnimation=""Fade"">
+		                        <Border Background=""" + tbBgHex + @"""
+		                                BorderBrush=""" + hoverHex + @"""
+		                                BorderThickness=""1""
+		                                CornerRadius=""2""
+		                                Padding=""2"">
+		                            <ToolBarOverflowPanel x:Name=""PART_ToolBarOverflowPanel""
+		                                                   WrapWidth=""200""
+		                                                   Focusable=""True""
+		                                                   FocusVisualStyle=""{x:Null}""
+		                                                   KeyboardNavigation.TabNavigation=""Cycle""
+		                                                   KeyboardNavigation.DirectionalNavigation=""Cycle"" />
+		                        </Border>
+		                    </Popup>
+		                    <ToolBarPanel x:Name=""PART_ToolBarPanel""
+		                                  IsItemsHost=""True"" />
+		                </DockPanel>
+		            </Border>
+		            <ControlTemplate.Triggers>
+		                <Trigger Property=""HasOverflowItems"" Value=""True"">
+		                    <Setter TargetName=""OverflowButton"" Property=""Visibility"" Value=""Visible"" />
+		                </Trigger>
+		            </ControlTemplate.Triggers>
+		        </ControlTemplate>";
 
-		        tbTemplate.VisualTree = tbBorder;
-		        tb.Template = tbTemplate;
+		        try
+		        {
+		            ControlTemplate parsedTemplate = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(toolBarXaml);
+		            tb.Template = parsedTemplate;
+		        }
+		        catch (Exception)
+		        {
+		            tb.Background = bg;
+		            tb.Foreground = fg;
+		        }
 		    }
 		}
 
@@ -5475,6 +5544,7 @@ namespace PublishedAppTracker
                 // Install into WebView2 — remove old version first
                 await webView.EnsureCoreWebView2Async();
 
+                bool alreadyRegistered = false;
                 try
                 {
                     var extensions = await webView.CoreWebView2.Profile.GetBrowserExtensionsAsync();
@@ -5482,39 +5552,60 @@ namespace PublishedAppTracker
                     {
                         if (ext.Name.Contains("uBlock", StringComparison.OrdinalIgnoreCase))
                         {
+                            alreadyRegistered = true;
                             await ext.RemoveAsync();
                             break;
                         }
                     }
                 }
-                catch (Exception) { }
+                catch { }
 
-                var extension = await webView.CoreWebView2.Profile.AddBrowserExtensionAsync(ublockFolder);
-                await extension.EnableAsync(true);
-
-                statusFile.Text = "uBlock Origin installed successfully! Extension ID: " + extension.Id;
-                MessageBox.Show("uBlock Origin installed successfully!\n\n" +
-                    "The extension will be active for all WebView navigation.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                try
+                {
+                    var newExtension = await webView.CoreWebView2.Profile.AddBrowserExtensionAsync(ublockFolder);
+                    statusFile.Text = "uBlock Origin installed successfully! Extension ID: " + newExtension.Id;
+                    MessageBox.Show("uBlock Origin installed/updated successfully!\n\n" +
+                        "The extension will be active for all WebView navigation.",
+                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception addEx)
+                {
+                    if (addEx.Message.Contains("0x80070032"))
+                    {
+                        if (alreadyRegistered)
+                        {
+                            statusFile.Text = "uBlock files updated — restart app to load new version";
+                            MessageBox.Show("uBlock Origin files have been updated on disk.\n\n" +
+                                "However, WebView2 could not re-register the extension in this session.\n" +
+                                "Please restart the application to load the updated version.",
+                                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                        else
+                        {
+                            statusFile.Text = "uBlock downloaded but WebView2 rejected MV2 extension";
+                            MessageBox.Show("uBlock Origin was downloaded successfully, but WebView2 rejected it.\n\n" +
+                                "Your WebView2 runtime may no longer support Manifest V2 extensions.\n" +
+                                "When Microsoft adds Manifest V3 support to WebView2, the extension can be updated.\n\n" +
+                                "In the meantime, the built-in cookie popup blocker is available as an alternative.",
+                                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
+                    }
+                    else
+                    {
+                        MessageBox.Show("Error installing uBlock Origin:\n" + addEx.Message +
+                            "\n\nYou can manually download from:\nhttps://github.com/gorhill/uBlock/releases\n\n" +
+                            "Extract the uBlock0.chromium folder to:\n" + extensionsPath,
+                            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                        statusFile.Text = "Extension install failed: " + addEx.Message;
+                    }
+                }
             }
             catch (Exception ex)
             {
-                if (ex.Message.Contains("0x80070032"))
-                {
-                    MessageBox.Show("WebView2 rejected the extension — this is likely because your WebView2 runtime " +
-                        "no longer supports Manifest V2 extensions.\n\n" +
-                        "If uBlock Origin is already working in the browser tab, no action is needed.\n\n" +
-                        "If not, Microsoft has not yet added Manifest V3 extension support to WebView2. " +
-                        "The built-in cookie popup blocker can be used as an alternative.",
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-                else
-                {
-                    MessageBox.Show("Error installing uBlock Origin:\n" + ex.Message +
-                        "\n\nYou can manually download from:\nhttps://github.com/gorhill/uBlock/releases\n\n" +
-                        "Extract the uBlock0.chromium folder to:\n" + extensionsPath,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+                MessageBox.Show("Error installing uBlock Origin:\n" + ex.Message +
+                    "\n\nYou can manually download from:\nhttps://github.com/gorhill/uBlock/releases\n\n" +
+                    "Extract the uBlock0.chromium folder to:\n" + extensionsPath,
+                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
                 statusFile.Text = "Extension install failed: " + ex.Message;
             }
             finally
