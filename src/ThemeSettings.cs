@@ -20,6 +20,9 @@ namespace PublishedAppTracker
         public Color MenuForeground { get; set; } = Color.FromRgb(0, 0, 0);
         public Color ToolbarBackground { get; set; } = Color.FromRgb(240, 240, 240);
         public Color ToolbarForeground { get; set; } = Color.FromRgb(0, 0, 0);
+        // Main toolbar (separate from other toolbars)
+        public Color MainToolbarBackground { get; set; } = Color.FromRgb(240, 240, 240);
+        public Color MainToolbarForeground { get; set; } = Color.FromRgb(0, 0, 0);
 
         // Status bar
         public Color StatusBarBackground { get; set; } = Color.FromRgb(230, 230, 230);
@@ -86,6 +89,8 @@ namespace PublishedAppTracker
         public Color LabelForeground { get; set; } = Color.FromRgb(0, 0, 0);
 		public Color VersionMatchColor { get; set; } = Color.FromRgb(0, 160, 0);
 		public Color VersionMismatchColor { get; set; } = Color.FromRgb(200, 30, 30);
+        public Color TrackToolbarBackground { get; set; } = Color.FromRgb(240, 240, 240);
+        public Color TrackToolbarForeground { get; set; } = Color.FromRgb(0, 0, 0);
 
         // Tabs
         public Color TabBackground { get; set; } = Color.FromRgb(240, 240, 240);
@@ -93,6 +98,8 @@ namespace PublishedAppTracker
         public Color TabSelectedBackground { get; set; } = Color.FromRgb(255, 255, 255);
         public Color TabSelectedForeground { get; set; } = Color.FromRgb(0, 0, 0);
         public Color TabContentForeground { get; set; } = Color.FromRgb(0, 0, 0);
+        public Color TabHandleBackground { get; set; } = Color.FromRgb(225, 225, 225);
+        public Color TabHandleForeground { get; set; } = Color.FromRgb(80, 80, 80);
 
         // Source view
         public Color SourceBackground { get; set; } = Color.FromRgb(255, 255, 255);
@@ -134,6 +141,8 @@ namespace PublishedAppTracker
             t.MenuForeground = Color.FromRgb(220, 220, 220);
             t.ToolbarBackground = Color.FromRgb(45, 45, 45);
             t.ToolbarForeground = Color.FromRgb(220, 220, 220);
+            t.MainToolbarBackground = Color.FromRgb(35, 35, 35);
+            t.MainToolbarForeground = Color.FromRgb(220, 220, 220);
 
             t.StatusBarBackground = Color.FromRgb(40, 40, 40);
             t.StatusBarForeground = Color.FromRgb(200, 200, 200);
@@ -189,12 +198,16 @@ namespace PublishedAppTracker
             t.LabelForeground = Color.FromRgb(200, 200, 200);
             t.VersionMatchColor = Color.FromRgb(80, 220, 80);
 			t.VersionMismatchColor = Color.FromRgb(255, 80, 80);
+            t.TrackToolbarBackground = Color.FromRgb(45, 45, 45);
+            t.TrackToolbarForeground = Color.FromRgb(220, 220, 220);
 
             t.TabBackground = Color.FromRgb(40, 40, 40);
             t.TabForeground = Color.FromRgb(200, 200, 200);
             t.TabSelectedBackground = Color.FromRgb(55, 55, 55);
             t.TabSelectedForeground = Color.FromRgb(255, 255, 255);
             t.TabContentForeground = Color.FromRgb(210, 210, 210);
+            t.TabHandleBackground = Color.FromRgb(50, 50, 50);
+            t.TabHandleForeground = Color.FromRgb(160, 160, 160);
 
             t.SourceBackground = Color.FromRgb(30, 30, 30);
             t.SourceTagColor = Color.FromRgb(100, 150, 255);
@@ -270,6 +283,8 @@ namespace PublishedAppTracker
             t.LabelForeground = Color.FromRgb(30, 50, 90);
             t.VersionMatchColor = Color.FromRgb(0, 160, 0);
 			t.VersionMismatchColor = Color.FromRgb(200, 40, 40);
+            t.TrackToolbarBackground = Color.FromRgb(210, 230, 255);
+            t.TrackToolbarForeground = Color.FromRgb(20, 20, 60);
 
             t.TabBackground = Color.FromRgb(220, 235, 255);
             t.TabForeground = Color.FromRgb(20, 40, 80);

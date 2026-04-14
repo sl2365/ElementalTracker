@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -32,9 +33,11 @@ namespace PublishedAppTracker
         public string ModificationDate { get; set; } = "";
         public string PublisherName { get; set; } = "";
         public string SuiteName { get; set; } = "";
+        public string SpsFileName { get; set; }
 
         // UI fields
         public bool IsSelected { get; set; } = false;
+		public bool IsDirtyInMemory { get; set; } = false;
 
 		// Add these alongside existing properties
 		public string TrackURLStatus { get; set; } = "";
@@ -575,8 +578,16 @@ namespace PublishedAppTracker
                 HashStatus = "changed";
             }
 
+            // Version mismatch overrides hash-based status
+            if (LatestVersionStatus == "changed" && TrackStatus == "unchanged")
+            {
+                TrackStatus = "changed";
+                result.Status = "changed";
+            }
+
             result.Hash = newHash;
             result.TrackBlock = trackBlock;
+            IsDirtyInMemory = true;
             return result;
         }
 
@@ -591,6 +602,10 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrEmpty(FilePath))
                 throw new InvalidOperationException("No file path set for track item.");
+
+            // Don't overwrite SPS XML files with individual track format
+            if (FilePath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                return;
 
             if (string.IsNullOrEmpty(CreationDate))
                 CreationDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
@@ -685,12 +700,193 @@ namespace PublishedAppTracker
             return item;
         }
 
+        public void ReloadFromFile()
+        {
+            if (string.IsNullOrEmpty(FilePath) || !File.Exists(FilePath))
+                return;
+
+            try
+            {
+                TrackItem reloaded = LoadFromFile(FilePath);
+
+                TrackName = reloaded.TrackName;
+                TrackURL = reloaded.TrackURL;
+                StartString = reloaded.StartString;
+                StopString = reloaded.StopString;
+                DownloadURL = reloaded.DownloadURL;
+                Version = reloaded.Version;
+                LatestVersion = reloaded.LatestVersion;
+                LastChecked = reloaded.LastChecked;
+                TrackBlockHash = reloaded.TrackBlockHash;
+                PreviousHash = reloaded.PreviousHash;
+                DownloadSizeKb = reloaded.DownloadSizeKb;
+                TrackStatus = reloaded.TrackStatus;
+                ReleaseDate = reloaded.ReleaseDate;
+                CreationDate = reloaded.CreationDate;
+                ModificationDate = reloaded.ModificationDate;
+                PublisherName = reloaded.PublisherName;
+                SuiteName = reloaded.SuiteName;
+                TrackMode = reloaded.TrackMode;
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private static string GetNodeText(XmlNode parent, string childName)
         {
             XmlNode node = parent.SelectSingleNode(childName);
             if (node != null)
                 return node.InnerText ?? "";
             return "";
+        }
+
+        // ============================
+        // SPS List Save (single SPS XML)
+        // ============================
+
+        public static void SaveSpsListToFile(string path, List<TrackItem> items, string publisherFilter, string suitePath, List<string> selectedSuites = null)
+        {
+            XmlWriterSettings settings = new XmlWriterSettings();
+            settings.Indent = true;
+            settings.IndentChars = "  ";
+            settings.Encoding = Encoding.UTF8;
+
+            string dir = Path.GetDirectoryName(path);
+            if (!Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            using (XmlWriter writer = XmlWriter.Create(path, settings))
+            {
+                writer.WriteStartDocument();
+                writer.WriteStartElement("SpsTrackList");
+
+                writer.WriteElementString("PublisherFilter", publisherFilter ?? "");
+                writer.WriteElementString("SuitePath", suitePath ?? "");
+
+                // Save selected suites
+                writer.WriteStartElement("SelectedSuites");
+                if (selectedSuites != null)
+                {
+                    foreach (string suite in selectedSuites)
+                    {
+                        writer.WriteElementString("Suite", suite);
+                    }
+                }
+                writer.WriteEndElement();
+
+                writer.WriteStartElement("Tracks");
+                foreach (TrackItem item in items)
+                {
+                    writer.WriteStartElement("Track");
+                    writer.WriteElementString("TrackName", item.TrackName ?? "");
+                    writer.WriteElementString("TrackURL", item.TrackURL ?? "");
+                    writer.WriteElementString("StartString", item.StartString ?? "");
+                    writer.WriteElementString("StopString", item.StopString ?? "");
+                    writer.WriteElementString("DownloadURL", item.DownloadURL ?? "");
+                    writer.WriteElementString("Version", item.Version ?? "");
+                    writer.WriteElementString("LatestVersion", item.LatestVersion ?? "");
+                    writer.WriteElementString("LastChecked", item.LastChecked ?? "");
+                    writer.WriteElementString("TrackBlockHash", item.TrackBlockHash ?? "");
+                    writer.WriteElementString("PreviousHash", item.PreviousHash ?? "");
+                    writer.WriteElementString("DownloadSizeKb", item.DownloadSizeKb ?? "");
+                    writer.WriteElementString("TrackStatus", item.TrackStatus ?? "unchecked");
+                    writer.WriteElementString("ReleaseDate", item.ReleaseDate ?? "");
+                    writer.WriteElementString("CreationDate", item.CreationDate ?? "");
+                    writer.WriteElementString("ModificationDate", item.ModificationDate ?? "");
+                    writer.WriteElementString("PublisherName", item.PublisherName ?? "");
+                    writer.WriteElementString("SuiteName", item.SuiteName ?? "");
+                    writer.WriteElementString("SpsFileName", item.SpsFileName ?? "");
+                    writer.WriteElementString("TrackMode", item.TrackMode ?? "html");
+                    writer.WriteEndElement();
+                }
+                writer.WriteEndElement();
+
+                writer.WriteEndElement();
+                writer.WriteEndDocument();
+            }
+        }
+
+        // ============================
+        // SPS List Load (single SPS XML)
+        // ============================
+
+        public static List<TrackItem> LoadSpsListFromFile(string path, out string publisherFilter, out string suitePath, out List<string> selectedSuites)
+        {
+            publisherFilter = "";
+            suitePath = "";
+            selectedSuites = new List<string>();
+            List<TrackItem> items = new List<TrackItem>();
+
+            if (!File.Exists(path))
+                return items;
+
+            try
+            {
+                XmlDocument doc = new XmlDocument();
+                doc.Load(path);
+
+                XmlNode root = doc.SelectSingleNode("//SpsTrackList");
+                if (root == null)
+                    return items;
+
+                XmlNode filterNode = root.SelectSingleNode("PublisherFilter");
+                if (filterNode != null)
+                    publisherFilter = filterNode.InnerText ?? "";
+
+                XmlNode suitesNode = root.SelectSingleNode("SelectedSuites");
+                if (suitesNode != null)
+                {
+                    XmlNodeList suiteNodes = suitesNode.SelectNodes("Suite");
+                    foreach (XmlNode sNode in suiteNodes)
+                    {
+                        if (!string.IsNullOrEmpty(sNode.InnerText))
+                            selectedSuites.Add(sNode.InnerText);
+                    }
+                }
+
+                XmlNode tracksNode = root.SelectSingleNode("Tracks");
+                if (tracksNode == null)
+                    return items;
+
+                XmlNodeList trackNodes = tracksNode.SelectNodes("Track");
+                foreach (XmlNode track in trackNodes)
+                {
+                    TrackItem item = new TrackItem();
+                    item.FilePath = path;
+                    item.TrackName = GetNodeText(track, "TrackName");
+                    item.TrackURL = GetNodeText(track, "TrackURL");
+                    item.StartString = GetNodeText(track, "StartString");
+                    item.StopString = GetNodeText(track, "StopString");
+                    item.DownloadURL = GetNodeText(track, "DownloadURL");
+                    item.Version = GetNodeText(track, "Version");
+                    item.LatestVersion = GetNodeText(track, "LatestVersion");
+                    item.LastChecked = GetNodeText(track, "LastChecked");
+                    item.TrackBlockHash = GetNodeText(track, "TrackBlockHash");
+                    item.PreviousHash = GetNodeText(track, "PreviousHash");
+                    item.DownloadSizeKb = GetNodeText(track, "DownloadSizeKb");
+                    item.TrackStatus = GetNodeText(track, "TrackStatus");
+                    item.ReleaseDate = GetNodeText(track, "ReleaseDate");
+                    item.CreationDate = GetNodeText(track, "CreationDate");
+                    item.ModificationDate = GetNodeText(track, "ModificationDate");
+                    item.PublisherName = GetNodeText(track, "PublisherName");
+                    item.SuiteName = GetNodeText(track, "SuiteName");
+                    item.SpsFileName = GetNodeText(track, "SpsFileName");
+                    item.TrackMode = GetNodeText(track, "TrackMode");
+
+                    if (string.IsNullOrEmpty(item.TrackMode))
+                        item.TrackMode = "html";
+                    if (string.IsNullOrEmpty(item.TrackStatus))
+                        item.TrackStatus = "unchecked";
+
+                    items.Add(item);
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            return items;
         }
     }
 

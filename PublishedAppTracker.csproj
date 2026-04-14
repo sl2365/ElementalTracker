@@ -10,10 +10,10 @@
     <AssemblyName>PublishedAppTracker</AssemblyName>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
-	<Version>7.0.4</Version>                       <!-- NuGet / product version -->
-	<AssemblyVersion>7.0.4</AssemblyVersion>     <!-- assembly identity -->
-	<FileVersion>7.0.4.480</FileVersion>             <!-- file version shown in Explorer -->
-	<InformationalVersion>7.0.4.480</InformationalVersion> <!-- pretty/product string -->
+	<Version>7.0.5</Version>                       <!-- NuGet / product version -->
+	<AssemblyVersion>7.0.5</AssemblyVersion>     <!-- assembly identity -->
+	<FileVersion>7.0.5.564</FileVersion>             <!-- file version shown in Explorer -->
+	<InformationalVersion>7.0.5.564</InformationalVersion> <!-- pretty/product string -->
 	<Company>sl23</Company>
 	<Product>Published App Tracker</Product>
 	<Authors>sl23</Authors>
@@ -27,6 +27,7 @@
   <ItemGroup>
     <ApplicationDefinition Include="src\App.xaml" />
     <Page Include="src\MainWindow.xaml" />
+    <Page Include="src\SuiteSelectionWindow.xaml" />
   </ItemGroup>
 
   <ItemGroup>

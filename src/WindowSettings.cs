@@ -43,11 +43,19 @@ namespace PublishedAppTracker
         // Editor path
         public string EditorPath { get; set; } = "";
 
+		// Search engine
+		public string SearchEngine { get; set; } = "DuckDuckGo";
+
         // Column settings
         public List<ColumnSetting> ColumnSettings { get; set; } = new List<ColumnSetting>();
 
         // Active theme file path (relative to Settings folder)
 		public string ActiveThemePath { get; set; } = "";
+
+        // SPS Suite root path (e.g. D:\SyMenu\ProgramFiles\SPSSuite)
+        public string SpsSuiteRootPath { get; set; } = "";
+        public bool TrackSettingsCollapsed { get; set; } = false;
+        public List<string> SelectedSuites { get; set; } = new List<string>();
 
         public static List<ColumnSetting> GetDefaultColumns()
         {
@@ -102,7 +110,17 @@ namespace PublishedAppTracker
                 writer.WriteElementString("SourceFontSize", SourceFontSize.ToString());
                 writer.WriteElementString("EditorPath", EditorPath ?? "");
                 writer.WriteElementString("ActiveThemePath", ActiveThemePath ?? "");
+                writer.WriteElementString("SpsSuiteRootPath", SpsSuiteRootPath ?? "");
+                writer.WriteElementString("TrackSettingsCollapsed", TrackSettingsCollapsed.ToString());
+                // Save selected suites
+                writer.WriteStartElement("SelectedSuites");
+                foreach (string suite in SelectedSuites)
+                {
+                    writer.WriteElementString("Suite", suite);
+                }
+                writer.WriteEndElement();
                 writer.WriteElementString("ToolbarPosition", ToolbarPosition ?? "Top");
+                writer.WriteElementString("SearchEngine", SearchEngine ?? "DuckDuckGo");
 
                 // Save column settings
                 writer.WriteStartElement("Columns");
@@ -156,9 +174,26 @@ namespace PublishedAppTracker
                 ws.SourceFontSize = ParseDouble(root, "SourceFontSize", ws.SourceFontSize);
                 ws.EditorPath = GetNodeText(root, "EditorPath");
                 ws.ActiveThemePath = GetNodeText(root, "ActiveThemePath");
+                ws.SpsSuiteRootPath = GetNodeText(root, "SpsSuiteRootPath");
+                ws.TrackSettingsCollapsed = ParseBool(root, "TrackSettingsCollapsed", ws.TrackSettingsCollapsed);
+                // Load selected suites
+                XmlNode suitesNode = root.SelectSingleNode("SelectedSuites");
+                if (suitesNode != null)
+                {
+                    XmlNodeList suiteNodes = suitesNode.SelectNodes("Suite");
+                    foreach (XmlNode suiteNode in suiteNodes)
+                    {
+                        if (!string.IsNullOrEmpty(suiteNode.InnerText))
+                            ws.SelectedSuites.Add(suiteNode.InnerText);
+                    }
+                }
                 ws.ToolbarPosition = GetNodeText(root, "ToolbarPosition");
 				if (string.IsNullOrEmpty(ws.ToolbarPosition))
 				    ws.ToolbarPosition = "Top";
+
+                ws.SearchEngine = GetNodeText(root, "SearchEngine");
+                if (string.IsNullOrEmpty(ws.SearchEngine))
+                    ws.SearchEngine = "DuckDuckGo";
 
                 // Load column settings
                 XmlNode columnsNode = root.SelectSingleNode("Columns");

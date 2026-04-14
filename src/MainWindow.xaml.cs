@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
@@ -22,7 +23,7 @@ namespace PublishedAppTracker
         private string settingsPath;
         private string webViewPath;
         private bool isHorizontalLayout = false;
-        private List<TrackItem> currentItems = new List<TrackItem>();
+        private System.Collections.ObjectModel.ObservableCollection<TrackItem> currentItems = new System.Collections.ObjectModel.ObservableCollection<TrackItem>();
         private string lastSortColumn = "";
         private bool lastSortAscending = true;
         private string cookieBlockerScriptId;
@@ -46,6 +47,7 @@ namespace PublishedAppTracker
         private TextBox editReleaseDate;
         private TextBox editPublisherName;
         private TextBox editSuiteName;
+        private TextBlock trackSettingsLabel;
         private TrackItem currentTrackItem = null;
         private string currentCategoryPath = null;
         private TextBlock startPositionText;
@@ -54,14 +56,23 @@ namespace PublishedAppTracker
         private bool suppressAutoDownload = false;
         private bool blockCookiePopups = true;
         private TextBox editEditorPath;
+        private TextBox editSyMenuPath;
         private Style columnHeaderStyle;
         private bool isDirty = false;
+        private bool isCategoryDirty = false;
         private bool isLoadingFields = false;
+        private bool suppressSelectionChange = false;
+        private bool suppressCategoryReload = false;
         private Button btnSaveTrack;
         private Button btnSaveTrackAs;
         private Button btnSaveMain;
         private Button btnSaveAsMain;
         private Button btnTrackMode;
+        private bool trackSettingsCollapsed = false;
+        private ScrollViewer trackSettingsScrollArea;
+        private double trackSettingsExpandedWidth = Double.NaN;
+        private double trackSettingsExpandedHeight = Double.NaN;
+        private Button btnToggleTrackSettings;
 
         // Source tab fields
         private RichTextBox sourceView;
@@ -82,6 +93,7 @@ namespace PublishedAppTracker
         private List<int> searchHitPositions = new List<int>();
         private int currentSearchIndex = -1;
         private TextBox webAddressBar;
+        private ComboBox searchEngineCombo;
 
 		// Window settings
         private WindowSettings windowSettings;
@@ -92,6 +104,57 @@ namespace PublishedAppTracker
 		private ThemeSettings currentTheme;
 		private string currentThemePath;
 		private ThemeSettings previewTheme;
+
+        [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        private static extern IntPtr SHGetFileInfo(
+            string pszPath,
+            uint dwFileAttributes,
+            ref SHFILEINFO psfi,
+            uint cbFileInfo,
+            uint uFlags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool DestroyIcon(IntPtr hIcon);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        private struct SHFILEINFO
+        {
+            public IntPtr hIcon;
+            public int iIcon;
+            public uint dwAttributes;
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szDisplayName;
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr, SizeConst = 80)]
+            public string szTypeName;
+        }
+
+        private const uint SHGFI_ICON = 0x000000100;
+        private const uint SHGFI_SMALLICON = 0x000000001;
+        private const uint SHGFI_LINKOVERLAY = 0x000008000;
+
+        private System.Windows.Media.ImageSource GetFolderIcon(string folderPath, bool isLinked)
+        {
+            SHFILEINFO shfi = new SHFILEINFO();
+            uint flags = SHGFI_ICON | SHGFI_SMALLICON;
+            if (isLinked)
+                flags |= SHGFI_LINKOVERLAY;
+
+            SHGetFileInfo(folderPath, 0, ref shfi, (uint)System.Runtime.InteropServices.Marshal.SizeOf(shfi), flags);
+
+            if (shfi.hIcon == IntPtr.Zero)
+                return null;
+
+            System.Windows.Media.ImageSource imageSource =
+                System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
+                    shfi.hIcon,
+                    Int32Rect.Empty,
+                    System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+
+            DestroyIcon(shfi.hIcon);
+
+            return imageSource;
+        }
 
         // Window constructor
         public MainWindow()
@@ -187,12 +250,18 @@ namespace PublishedAppTracker
             this.Loaded += (s, ev) =>
             {
                 ApplySplitterPositions();
+
+                // Restore collapsed state of Track Settings panel
+                if (windowSettings.TrackSettingsCollapsed && !trackSettingsCollapsed)
+                {
+                    btnToggleTrackSettings.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                }
             };
 
             // Save settings on close
             this.Closing += (s, ev) =>
             {
-                if (isDirty)
+                if (isCategoryDirty && currentItems.Count > 0)
                 {
                     MessageBoxResult result = MessageBox.Show(
                         "You have unsaved changes.\n\nDo you want to save before closing?",
@@ -317,12 +386,21 @@ namespace PublishedAppTracker
             categoryTree = new TreeView();
             categoryTree.Margin = new Thickness(4);
             categoryTree.SelectedItemChanged += CategoryTree_Selected;
+
+            // Keep the selected item highlighted even when tree loses focus
+            categoryTree.Resources.Add(
+                SystemColors.InactiveSelectionHighlightBrushKey,
+                SystemColors.HighlightBrush);
+            categoryTree.Resources.Add(
+                SystemColors.InactiveSelectionHighlightTextBrushKey,
+                SystemColors.HighlightTextBrush);
             categoryPanel.Children.Add(categoryTree);
 
             // --- Item List ---
             itemList = new ListView();
             itemList.Margin = new Thickness(4);
             itemList.SelectionChanged += ItemList_SelectionChanged;
+	        itemList.PreviewMouseLeftButtonDown += ItemList_PreviewMouseDown;
             itemList.AddHandler(GridViewColumnHeader.ClickEvent,
                 new RoutedEventHandler(ColumnHeader_Click));
 
@@ -385,6 +463,11 @@ namespace PublishedAppTracker
             ctxOpenFile.Click += OpenFileInEditor_Click;
             listContextMenu.Items.Add(ctxOpenFile);
 
+			MenuItem ctxOpenSpsBuilder = new MenuItem();
+			ctxOpenSpsBuilder.Header = "Open in SPS Builder";
+			ctxOpenSpsBuilder.Click += OpenInSpsBuilder_Click;
+			listContextMenu.Items.Add(ctxOpenSpsBuilder);
+
             listContextMenu.Items.Add(new Separator());
 
             MenuItem ctxSave = new MenuItem();
@@ -397,6 +480,17 @@ namespace PublishedAppTracker
             ctxDelete.Click += DeleteTrack_Click;
             listContextMenu.Items.Add(ctxDelete);
 
+			// Only show SPS Builder option for SPS categories
+			listContextMenu.Opened += (s, ev) =>
+			{
+			    bool isSps = false;
+			    if (!string.IsNullOrEmpty(currentCategoryPath) && Directory.Exists(currentCategoryPath))
+			    {
+			        isSps = Directory.GetFiles(currentCategoryPath, "*.xml").Length > 0;
+			    }
+			    ctxOpenSpsBuilder.Visibility = isSps ? Visibility.Visible : Visibility.Collapsed;
+			};
+			
             itemList.ContextMenu = listContextMenu;
             SetupListViewHorizontalScrolling();
 
@@ -411,31 +505,121 @@ namespace PublishedAppTracker
         {
             trackSettingsPanel = new DockPanel();
 
-            ScrollViewer scrollArea = new ScrollViewer();
-            scrollArea.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            // ---- Fixed header: toggle button + label, non-scrollable ----
+            DockPanel headerRow = new DockPanel();
+            headerRow.Height = 30;
+            DockPanel.SetDock(headerRow, Dock.Top);
 
-            DockPanel outerPanel = new DockPanel();
+            // Toggle button aligned with toolbar below
+            Button btnToggleTrackPanel = new Button();
+            btnToggleTrackPanel.Content = "\uE89F";
+            btnToggleTrackPanel.FontFamily = new FontFamily("Segoe Fluent Icons");
+            btnToggleTrackPanel.FontSize = 14;
+            btnToggleTrackPanel.Width = 37;
+            btnToggleTrackPanel.Margin = new Thickness(3, 0, 3, 0);
+            btnToggleTrackPanel.Padding = new Thickness(0);
+            btnToggleTrackPanel.ToolTip = "Collapse Track Settings panel";
+            btnToggleTrackPanel.VerticalAlignment = VerticalAlignment.Stretch;
+            btnToggleTrackPanel.HorizontalContentAlignment = HorizontalAlignment.Center;
+            btnToggleTrackPanel.VerticalContentAlignment = VerticalAlignment.Center;
+            DockPanel.SetDock(btnToggleTrackPanel, Dock.Left);
+            headerRow.Children.Add(btnToggleTrackPanel);
 
-            // Track Settings toolbar
+            trackSettingsLabel = new TextBlock();
+            trackSettingsLabel.Text = "Track Settings";
+            trackSettingsLabel.FontWeight = FontWeights.Bold;
+            trackSettingsLabel.FontSize = 13;
+            trackSettingsLabel.VerticalAlignment = VerticalAlignment.Center;
+            trackSettingsLabel.Padding = new Thickness(8, 0, 0, 0);
+            headerRow.Children.Add(trackSettingsLabel);
+
+            btnToggleTrackSettings = btnToggleTrackPanel;
+
+            btnToggleTrackPanel.Click += (s, ev) =>
+            {
+                if (!trackSettingsCollapsed)
+                {
+                    if (isHorizontalLayout)
+                    {
+                        Grid bottomGrid = trackSettingsHostH.Parent as Grid;
+                        if (bottomGrid != null)
+                        {
+                            int col = Grid.GetColumn(trackSettingsHostH);
+                            trackSettingsExpandedWidth = bottomGrid.ColumnDefinitions[col].ActualWidth;
+                            bottomGrid.ColumnDefinitions[col].MinWidth = 0;
+                            bottomGrid.ColumnDefinitions[col].Width = new GridLength(41, GridUnitType.Pixel);
+                        }
+                    }
+                    else
+                    {
+                        Grid innerGrid = trackSettingsHostV.Parent as Grid;
+                        if (innerGrid != null)
+                        {
+                            trackSettingsExpandedHeight = innerGrid.RowDefinitions[2].ActualHeight;
+                            innerGrid.RowDefinitions[2].MinHeight = 0;
+                            trackSettingsHostV.MinHeight = 0;
+                            innerGrid.RowDefinitions[2].Height = new GridLength(30, GridUnitType.Pixel);
+                        }
+                    }
+
+                    trackSettingsSplitterH.IsEnabled = false;
+                    trackSettingsSplitterV.IsEnabled = false;
+
+                    btnToggleTrackPanel.Content = "\uE8A0";
+                    btnToggleTrackPanel.ToolTip = "Expand Track Settings panel";
+                    trackSettingsCollapsed = true;
+                }
+                else
+                {
+                    if (isHorizontalLayout)
+                    {
+                        Grid bottomGrid = trackSettingsHostH.Parent as Grid;
+                        if (bottomGrid != null)
+                        {
+                            int col = Grid.GetColumn(trackSettingsHostH);
+                            bottomGrid.ColumnDefinitions[col].MinWidth = 250;
+                            if (!Double.IsNaN(trackSettingsExpandedWidth) && trackSettingsExpandedWidth > 100)
+                                bottomGrid.ColumnDefinitions[col].Width = new GridLength(trackSettingsExpandedWidth, GridUnitType.Pixel);
+                            else
+                                bottomGrid.ColumnDefinitions[col].Width = new GridLength(1, GridUnitType.Star);
+                        }
+                    }
+                    else
+                    {
+                        Grid innerGrid = trackSettingsHostV.Parent as Grid;
+                        if (innerGrid != null)
+                        {
+                            innerGrid.RowDefinitions[2].MinHeight = 250;
+                            trackSettingsHostV.MinHeight = 150;
+                            if (!Double.IsNaN(trackSettingsExpandedHeight) && trackSettingsExpandedHeight > 100)
+                                innerGrid.RowDefinitions[2].Height = new GridLength(trackSettingsExpandedHeight, GridUnitType.Pixel);
+                            else
+                                innerGrid.RowDefinitions[2].Height = new GridLength(1, GridUnitType.Star);
+                        }
+                    }
+
+                    trackSettingsSplitterH.IsEnabled = true;
+                    trackSettingsSplitterV.IsEnabled = true;
+
+                    btnToggleTrackPanel.Content = "\uE89F";
+                    btnToggleTrackPanel.ToolTip = "Collapse Track Settings panel";
+                    trackSettingsCollapsed = false;
+                }
+            };
+                        
+            trackSettingsPanel.Children.Add(headerRow);
+
+            // ---- Vertical toolbar docked to the left ----
             ToolBarTray trackToolBarTray = new ToolBarTray();
-            DockPanel.SetDock(trackToolBarTray, Dock.Top);
+            trackToolBarTray.Orientation = Orientation.Vertical;
+            DockPanel.SetDock(trackToolBarTray, Dock.Left);
 
             ToolBar trackToolBar = new ToolBar();
             trackToolBar.Band = 0;
             trackToolBar.BandIndex = 0;
 
-            TextBlock title = new TextBlock();
-            title.Text = "Track Settings";
-            title.FontWeight = FontWeights.Bold;
-            title.FontSize = 13;
-            title.VerticalAlignment = VerticalAlignment.Center;
-            title.Margin = new Thickness(2, 0, 8, 0);
-            trackToolBar.Items.Add(title);
-
-            trackToolBar.Items.Add(new Separator());
-
-			Button btnNewTrack = CreateToolBarButton("\xecc8", "New Track", MenuNewTrack_Click);
-			trackToolBar.Items.Add(btnNewTrack);
+            Button btnNewTrack = CreateToolBarButton("\xecc8", "New Track", MenuNewTrack_Click);
+            trackToolBar.Items.Add(btnNewTrack);
 
             trackToolBar.Items.Add(new Separator());
 
@@ -451,11 +635,11 @@ namespace PublishedAppTracker
 
             trackToolBar.Items.Add(new Separator());
 
-			Button btnGoStart = CreateToolBarButton("\uE768", "Go to Start String", GoToStartString_Click);
-			trackToolBar.Items.Add(btnGoStart);
+            Button btnGoStart = CreateToolBarButton("\uE768", "Go to Start String", GoToStartString_Click);
+            trackToolBar.Items.Add(btnGoStart);
 
-			Button btnGoStop = CreateToolBarButton("\uE71A", "Go to Stop String", GoToStopString_Click);
-			trackToolBar.Items.Add(btnGoStop);
+            Button btnGoStop = CreateToolBarButton("\uE71A", "Go to Stop String", GoToStopString_Click);
+            trackToolBar.Items.Add(btnGoStop);
 
             trackToolBar.Items.Add(new Separator());
 
@@ -464,7 +648,6 @@ namespace PublishedAppTracker
             btnTrackMode.FontFamily = SystemFonts.MessageFontFamily;
             btnTrackMode.FontSize = 12;
             btnTrackMode.FontWeight = FontWeights.Bold;
-            btnTrackMode.Padding = new Thickness(6, 1, 6, 3);
             btnTrackMode.Margin = new Thickness(1, 2, 1, 2);
             btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
             btnTrackMode.Click += (s, ev) =>
@@ -475,6 +658,7 @@ namespace PublishedAppTracker
                 {
                     currentTrackItem.TrackMode = "html";
                     btnTrackMode.Content = "</>";
+		            btnTrackMode.Padding = new Thickness(3, 1, 3, 3);
                     btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
                     statusFile.Text = "Track mode: HTML source";
                 }
@@ -482,6 +666,7 @@ namespace PublishedAppTracker
                 {
                     currentTrackItem.TrackMode = "text";
                     btnTrackMode.Content = "Aa";
+		            btnTrackMode.Padding = new Thickness(6, 1, 6, 3);
                     btnTrackMode.ToolTip = "Track Mode: Text (click to switch to HTML)";
                     statusFile.Text = "Track mode: Rendered text";
                 }
@@ -491,10 +676,10 @@ namespace PublishedAppTracker
             };
             trackToolBar.Items.Add(btnTrackMode);
 
-			Button btnDownloadToolbar = CreateToolBarButton("\uE896", "Download page source", DownloadPage_Click);
+            Button btnDownloadToolbar = CreateToolBarButton("\xf000", "Download page source", DownloadPage_Click);
             trackToolBar.Items.Add(btnDownloadToolbar);
 
-			Button btnBrowserToolbar = CreateToolBarButton("\uE774", "Open in browser", OpenBrowser_Click);
+            Button btnBrowserToolbar = CreateToolBarButton("\uE774", "Open in browser", OpenBrowser_Click);
             trackToolBar.Items.Add(btnBrowserToolbar);
 
             trackToolBar.Items.Add(new Separator());
@@ -506,10 +691,36 @@ namespace PublishedAppTracker
             {
                 btnUpdateVersion.Opacity = btnUpdateVersion.IsEnabled ? 1.0 : 0.4;
             };
-            trackToolBar.Items.Add(btnUpdateVersion);			
+            trackToolBar.Items.Add(btnUpdateVersion);
+
+            Button btnDownloadFile = CreateToolBarButton("\uE118", "Download file using Download URL", DownloadFile_Click);
+            trackToolBar.Items.Add(btnDownloadFile);
+
             trackToolBarTray.ToolBars.Add(trackToolBar);
 
-            // Fields
+            // Hide the overflow grip so buttons align left
+            trackToolBar.Loaded += (s, ev) =>
+            {
+                var overflowGrid = trackToolBar.Template.FindName("OverflowGrid", trackToolBar) as FrameworkElement;
+                if (overflowGrid != null)
+                    overflowGrid.Visibility = Visibility.Collapsed;
+
+                var mainPanel = trackToolBar.Template.FindName("PART_ToolBarPanel", trackToolBar) as FrameworkElement;
+                if (mainPanel != null && mainPanel is System.Windows.Controls.Primitives.ToolBarPanel tbp)
+                    tbp.HorizontalAlignment = HorizontalAlignment.Left;
+            };
+
+            // Force narrow width to match the old horizontal toolbar height
+            trackToolBarTray.Width = 38;
+            trackToolBarTray.Margin = new Thickness(1, 0, 1, 0);
+
+            trackSettingsPanel.Children.Add(trackToolBarTray);
+
+            // ---- Scrollable fields area (fills remaining space) ----
+            ScrollViewer scrollArea = new ScrollViewer();
+            scrollArea.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            trackSettingsScrollArea = scrollArea;
+
             StackPanel fieldsPanel = new StackPanel();
             fieldsPanel.Margin = new Thickness(8);
 
@@ -591,6 +802,14 @@ namespace PublishedAppTracker
             stopDock.Children.Add(editStopString);
             fieldsPanel.Children.Add(stopDock);
             editDownloadURL = AddSettingsField(fieldsPanel, "Download URL:");
+            editDownloadURL.ToolTip =
+                "Use {VERSION} placeholders to auto-insert the current version:\n\n" +
+                "  {VERSION}    inserts version as-is, e.g. 2.18\n" +
+                "  {VERSION_}   replaces dots with underscores, e.g. 2_18\n" +
+                "  {VERSION-}   replaces dots with hyphens, e.g. 2-18\n\n" +
+                "Example:\n" +
+                "https://example.com/downloads/App_{VERSION_}.exe\n" +
+                "resolves to: https://example.com/downloads/App_2_18.exe";
             editVersion = AddSettingsField(fieldsPanel, "Version:", 150);
             editStopString.TextChanged += (s, ev) =>
             {
@@ -626,11 +845,7 @@ namespace PublishedAppTracker
             editPublisherName = AddSettingsField(fieldsPanel, "Publisher Name:");
             editSuiteName = AddSettingsField(fieldsPanel, "Suite Name:");
 
-            outerPanel.Children.Add(fieldsPanel);
-            scrollArea.Content = outerPanel;
-
-            DockPanel.SetDock(trackToolBarTray, Dock.Top);
-            trackSettingsPanel.Children.Add(trackToolBarTray);
+            scrollArea.Content = fieldsPanel;
             trackSettingsPanel.Children.Add(scrollArea);
 
             // Wire up dirty tracking on all editable fields
@@ -643,6 +858,16 @@ namespace PublishedAppTracker
             editReleaseDate.TextChanged += Field_TextChanged;
             editPublisherName.TextChanged += Field_TextChanged;
             editSuiteName.TextChanged += Field_TextChanged;
+
+			AddSelectAllOnRightClick(editName);
+			AddSelectAllOnRightClick(editTrackURL);
+			AddSelectAllOnRightClick(editStartString);
+			AddSelectAllOnRightClick(editStopString);
+			AddSelectAllOnRightClick(editDownloadURL);
+			AddSelectAllOnRightClick(editVersion);
+			AddSelectAllOnRightClick(editReleaseDate);
+			AddSelectAllOnRightClick(editPublisherName);
+			AddSelectAllOnRightClick(editSuiteName);
         }
 
         private void BuildTabbedPane()
@@ -666,11 +891,12 @@ namespace PublishedAppTracker
 			findString = new TextBox();
 			findString.Width = 300;
 			findString.Margin = new Thickness(0, 0, 4, 0);
-			findString.KeyDown += (s, ev) =>
+			findString.PreviewKeyDown += (s, ev) =>
 			{
 			    if (ev.Key == System.Windows.Input.Key.Enter)
 			    {
 			        SearchDown_Click(findString, new RoutedEventArgs());
+			        ev.Handled = true;
 			    }
 			};
 			sourceToolBar.Items.Add(findString);
@@ -793,48 +1019,94 @@ namespace PublishedAppTracker
 
             sourceContextMenu.Items.Add(new Separator());
 
-            MenuItem menuAddStartString = new MenuItem();
-            menuAddStartString.Header = "Add to Start String";
-            menuAddStartString.Click += (s, ev) =>
+            MenuItem menuSetStartString = new MenuItem();
+            menuSetStartString.Header = "Set as Start String";
+            menuSetStartString.Click += (s, ev) =>
             {
                 string selected = sourceView.Selection.Text.Trim();
                 if (string.IsNullOrEmpty(selected)) return;
 
-                if (string.IsNullOrWhiteSpace(editStartString.Text))
-                    editStartString.Text = selected;
-                else
-                    editStartString.Text += selected;
-
+                editStartString.Text = selected;
                 MarkDirty();
-                statusFile.Text = "Added to Start String: " + selected;
-            };
-            sourceContextMenu.Items.Add(menuAddStartString);
+                statusFile.Text = "Start String set from selection";
 
-            MenuItem menuAddStopString = new MenuItem();
-            menuAddStopString.Header = "Add to Stop String";
-            menuAddStopString.Click += (s, ev) =>
+                if (!string.IsNullOrEmpty(currentSource))
+                    DisplaySource(currentSource);
+            };
+            sourceContextMenu.Items.Add(menuSetStartString);
+
+            MenuItem menuSetStopString = new MenuItem();
+            menuSetStopString.Header = "Set as Stop String";
+            menuSetStopString.Click += (s, ev) =>
             {
                 string selected = sourceView.Selection.Text.Trim();
                 if (string.IsNullOrEmpty(selected)) return;
 
-                if (string.IsNullOrWhiteSpace(editStopString.Text))
-                    editStopString.Text = selected;
-                else
-                    editStopString.Text += selected;
-
+                editStopString.Text = selected;
                 MarkDirty();
-                statusFile.Text = "Added to Stop String: " + selected;
-            };
-            sourceContextMenu.Items.Add(menuAddStopString);
+                statusFile.Text = "Stop String set from selection";
 
-            // Only enable Add options when text is selected
+                if (!string.IsNullOrEmpty(currentSource))
+                    DisplaySource(currentSource);
+            };
+            sourceContextMenu.Items.Add(menuSetStopString);
+
+            MenuItem menuAddReleaseDate = new MenuItem();
+            menuAddReleaseDate.Header = "Set to Release Date";
+            menuAddReleaseDate.Click += (s, ev) =>
+            {
+                string selected = sourceView.Selection.Text.Trim();
+                if (string.IsNullOrEmpty(selected)) return;
+
+                editReleaseDate.Text = selected;
+                MarkDirty();
+                statusFile.Text = "Release Date set from selection: " + selected;
+            };
+            sourceContextMenu.Items.Add(menuAddReleaseDate);
+
+            MenuItem menuSetDownloadUrl = new MenuItem();
+            menuSetDownloadUrl.Header = "Set as Download URL";
+            menuSetDownloadUrl.Click += (s, ev) =>
+            {
+                string selected = sourceView.Selection.Text.Trim();
+                if (string.IsNullOrEmpty(selected)) return;
+
+                editDownloadURL.Text = selected;
+                MarkDirty();
+                statusFile.Text = "Download URL set from selection: " + selected;
+            };
+            sourceContextMenu.Items.Add(menuSetDownloadUrl);
+
+            // Only enable options when text is selected; conditional items only when they match
             sourceContextMenu.Opened += (s, ev) =>
             {
                 bool hasSelection = !sourceView.Selection.IsEmpty &&
                                     !string.IsNullOrWhiteSpace(sourceView.Selection.Text);
+                string selectedText = hasSelection ? sourceView.Selection.Text.Trim() : "";
+
                 menuCopy.IsEnabled = hasSelection;
-                menuAddStartString.IsEnabled = hasSelection;
-                menuAddStopString.IsEnabled = hasSelection;
+                menuSetStartString.IsEnabled = hasSelection;
+                menuSetStopString.IsEnabled = hasSelection;
+
+                if (hasSelection && LooksLikeDate(selectedText))
+                {
+                    menuAddReleaseDate.Visibility = Visibility.Visible;
+                    menuAddReleaseDate.IsEnabled = true;
+                }
+                else
+                {
+                    menuAddReleaseDate.Visibility = Visibility.Collapsed;
+                }
+
+                if (hasSelection && LooksLikeDownloadUrl(selectedText))
+                {
+                    menuSetDownloadUrl.Visibility = Visibility.Visible;
+                    menuSetDownloadUrl.IsEnabled = true;
+                }
+                else
+                {
+                    menuSetDownloadUrl.Visibility = Visibility.Collapsed;
+                }
             };
 
             sourceView.ContextMenu = sourceContextMenu;
@@ -956,6 +1228,66 @@ namespace PublishedAppTracker
 
             appSettingsPanel.Children.Add(editorDock);
 
+            // SyMenu SPSSuite path setting
+            TextBlock syMenuLabel = new TextBlock();
+            syMenuLabel.Text = "SPSSuite Path:";
+            syMenuLabel.FontWeight = FontWeights.Bold;
+            syMenuLabel.Margin = new Thickness(0, 0, 0, 4);
+            appSettingsPanel.Children.Add(syMenuLabel);
+
+            TextBlock syMenuHint = new TextBlock();
+            syMenuHint.Text = "Path to the SyMenu SPSSuite folder (e.g. SyMenu\\ProgramFiles\\SPSSuite). Used for SPS ReBuild.";
+            syMenuHint.Foreground = Brushes.Gray;
+            syMenuHint.FontSize = 11;
+            syMenuHint.TextWrapping = TextWrapping.Wrap;
+            syMenuHint.Margin = new Thickness(0, 0, 0, 4);
+            appSettingsPanel.Children.Add(syMenuHint);
+
+            DockPanel syMenuDock = new DockPanel();
+            syMenuDock.Margin = new Thickness(0, 0, 0, 16);
+
+            Button btnBrowseSyMenu = new Button();
+            btnBrowseSyMenu.Content = "\xe838";
+            btnBrowseSyMenu.FontFamily = new FontFamily("Segoe Fluent Icons");
+            btnBrowseSyMenu.FontSize = 16;
+            btnBrowseSyMenu.Padding = new Thickness(8, 4, 8, 4);
+            btnBrowseSyMenu.Margin = new Thickness(4, 0, 0, 0);
+            btnBrowseSyMenu.ToolTip = "Browse for the SPSSuite folder";
+            btnBrowseSyMenu.Click += (s, ev) =>
+            {
+                var folderDialog = new System.Windows.Forms.FolderBrowserDialog();
+                folderDialog.Description = "Select the SPSSuite folder (contains SyMenuSuite, etc.)";
+                folderDialog.ShowNewFolderButton = false;
+                if (!string.IsNullOrEmpty(editSyMenuPath.Text) && Directory.Exists(editSyMenuPath.Text))
+                    folderDialog.SelectedPath = editSyMenuPath.Text;
+
+                if (folderDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                {
+                    string selected = folderDialog.SelectedPath;
+
+                    // If user selected a suite subfolder or _Cache, go up
+                    string selectedName = Path.GetFileName(selected);
+                    if (selectedName.Equals("_Cache", StringComparison.OrdinalIgnoreCase))
+                        selected = Path.GetDirectoryName(Path.GetDirectoryName(selected));
+                    else if (selectedName.Equals("SyMenuSuite", StringComparison.OrdinalIgnoreCase) ||
+                             selectedName.Equals("NirSoftSuite", StringComparison.OrdinalIgnoreCase))
+                        selected = Path.GetDirectoryName(selected);
+
+                    editSyMenuPath.Text = selected;
+                    windowSettings.SpsSuiteRootPath = selected;
+                    windowSettings.Save(windowSettingsPath);
+                    statusFile.Text = "SPSSuite path set: " + selected;
+                }
+            };
+            DockPanel.SetDock(btnBrowseSyMenu, Dock.Right);
+            syMenuDock.Children.Add(btnBrowseSyMenu);
+
+            editSyMenuPath = new TextBox();
+            editSyMenuPath.Text = windowSettings.SpsSuiteRootPath ?? "";
+            syMenuDock.Children.Add(editSyMenuPath);
+
+            appSettingsPanel.Children.Add(syMenuDock);
+
             // Column Visibility section
             TextBlock colTitle = new TextBlock();
             colTitle.Text = "Column Visibility:";
@@ -1009,7 +1341,7 @@ namespace PublishedAppTracker
             DockPanel.SetDock(webNavBar, Dock.Top);
 
             // Left side: search engine selector
-            ComboBox searchEngineCombo = new ComboBox();
+            searchEngineCombo = new ComboBox();
             searchEngineCombo.Width = 110;
             searchEngineCombo.Margin = new Thickness(4, 4, 2, 4);
             searchEngineCombo.VerticalAlignment = VerticalAlignment.Center;
@@ -1019,7 +1351,8 @@ namespace PublishedAppTracker
             searchEngineCombo.Items.Add("Startpage");
             searchEngineCombo.Items.Add("Brave");
             searchEngineCombo.Items.Add("Yahoo");
-            searchEngineCombo.SelectedIndex = 0;
+            int engineIndex = searchEngineCombo.Items.IndexOf(windowSettings.SearchEngine);
+            searchEngineCombo.SelectedIndex = engineIndex >= 0 ? engineIndex : 0;
             DockPanel.SetDock(searchEngineCombo, Dock.Left);
             webNavBar.Children.Add(searchEngineCombo);
 
@@ -1221,7 +1554,7 @@ namespace PublishedAppTracker
             chkBlockPopups.VerticalAlignment = VerticalAlignment.Center;
             chkBlockPopups.IsChecked = true;
             chkBlockPopups.ToolTip = "Automatically hides cookie consent popups.\nUnchecking clears cookies for this site\n(you may be signed out) and reload the page.";
-            chkBlockPopups.Margin = new Thickness(2, 0, 0, 0);
+            chkBlockPopups.Margin = new Thickness(2, 0, 2, 0);
 
             chkBlockPopups.Checked += async (s, ev) =>
             {
@@ -1332,6 +1665,15 @@ namespace PublishedAppTracker
             };
             webBottomToolBar.Items.Add(chkBlockPopups);
 
+            webBottomToolBar.Items.Add(new Separator());
+
+            Button btnInstallUBlock = CreateToolBarButton("\xf140", "Install/Update uBlock Origin", InstallUBlock_Click);
+            btnInstallUBlock.Padding = new Thickness(6, 1, 6, 3);
+            webBottomToolBar.Items.Add(btnInstallUBlock);
+
+            Button btnListExtensions = CreateToolBarButton("\uE71D", "List Extensions", ListExtensions_Click);
+            webBottomToolBar.Items.Add(btnListExtensions);
+
             webBottomToolBarTray.ToolBars.Add(webBottomToolBar);
 
             // ---- Add to DockPanel in correct order ----
@@ -1341,8 +1683,12 @@ namespace PublishedAppTracker
             webPanel.Children.Add(webBottomToolBarTray);
 
             // WebView2 last — it fills the remaining space
-            webView = new Microsoft.Web.WebView2.Wpf.WebView2();
-            webPanel.Children.Add(webView);
+			webView = new Microsoft.Web.WebView2.Wpf.WebView2();
+			webView.CreationProperties = new Microsoft.Web.WebView2.Wpf.CoreWebView2CreationProperties
+			{
+			    UserDataFolder = webViewPath
+			};
+			webPanel.Children.Add(webView);
 
             // Update address bar when navigation occurs
             webView.SourceChanged += (s, ev) =>
@@ -1591,31 +1937,83 @@ namespace PublishedAppTracker
             {
                 string folderName = Path.GetFileName(dir);
                 int trackCount = Directory.GetFiles(dir, "*.track").Length;
+                bool isSpsCategory = Directory.GetFiles(dir, "*.xml").Length > 0;
+
+                // For SPS categories, count entries inside the XML file
+                if (isSpsCategory)
+                {
+                    string[] xmlFiles = Directory.GetFiles(dir, "*.xml");
+                    string pf, sp;
+                    List<string> ss;
+                    List<TrackItem> spsItems = TrackItem.LoadSpsListFromFile(xmlFiles[0], out pf, out sp, out ss);
+                    trackCount = spsItems.Count;
+                }
                 string sourceLinkFile = Path.Combine(dir, "_source.link");
                 bool isLinked = File.Exists(sourceLinkFile);
 
-                string header;
+                string labelText = trackCount > 0
+                    ? folderName + " (" + trackCount + ")"
+                    : folderName;
+
                 if (isLinked)
+                    labelText += " [linked]";
+                if (isSpsCategory)
+                    labelText += " [SPS]";
+
+                // Build a header with real folder icon
+                StackPanel headerPanel = new StackPanel();
+                headerPanel.Orientation = Orientation.Horizontal;
+
+                System.Windows.Media.ImageSource icon = GetFolderIcon(dir, isLinked);
+                if (icon != null)
                 {
-                    header = trackCount > 0
-                        ? "📂 " + folderName + " (" + trackCount + ") [linked]"
-                        : "📂 " + folderName + " [linked]";
-                }
-                else
-                {
-                    header = trackCount > 0
-                        ? "📁 " + folderName + " (" + trackCount + ")"
-                        : "📁 " + folderName;
+                    Image iconImage = new Image();
+                    iconImage.Source = icon;
+                    iconImage.Width = 16;
+                    iconImage.Height = 16;
+                    iconImage.Margin = new Thickness(0, 0, 4, 0);
+                    headerPanel.Children.Add(iconImage);
                 }
 
+                TextBlock label = new TextBlock();
+                label.Text = labelText;
+                label.VerticalAlignment = VerticalAlignment.Center;
+                headerPanel.Children.Add(label);
+
                 TreeViewItem item = new TreeViewItem();
-                item.Header = header;
+                item.Header = headerPanel;
                 item.Tag = dir;
                 item.IsExpanded = false;
                 categoryTree.Items.Add(item);
             }
 
-            statusFile.Text = categoryTree.Items.Count + " categories";
+            // Re-select the previously active category and refresh the list
+            if (!string.IsNullOrEmpty(currentCategoryPath))
+            {
+                foreach (TreeViewItem item in categoryTree.Items)
+                {
+                    if ((string)item.Tag == currentCategoryPath)
+                    {
+                        if (suppressCategoryReload)
+                            suppressSelectionChange = true;
+
+                        item.IsSelected = true;
+                        item.BringIntoView();
+
+                        if (suppressCategoryReload)
+                            suppressSelectionChange = false;
+
+                        break;
+                    }
+                }
+
+                if (!suppressCategoryReload)
+                    LoadTrackFiles(currentCategoryPath);
+            }
+            else
+            {
+                statusFile.Text = categoryTree.Items.Count + " categories";
+            }
         }
 
         private void RefreshCategories_Click(object sender, RoutedEventArgs e)
@@ -1750,12 +2148,49 @@ namespace PublishedAppTracker
         private void CategoryTree_Selected(object sender,
             RoutedPropertyChangedEventArgs<object> e)
         {
+            if (suppressSelectionChange) return;
             TreeViewItem selected = e.NewValue as TreeViewItem;
 
             if (selected == null)
                 return;
 
             string folderPath = (string)selected.Tag;
+
+            // If switching to a different category with unsaved changes, ask to save
+            if (isCategoryDirty && currentItems.Count > 0 &&
+                !string.IsNullOrEmpty(currentCategoryPath) && folderPath != currentCategoryPath)
+            {
+                MessageBoxResult result = MessageBox.Show(
+                    "You have unsaved changes in '" + Path.GetFileName(currentCategoryPath) + "'.\n\n" +
+                    "Do you want to save before switching?",
+                    "PAT v7 — Unsaved Changes",
+                    MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    SaveAll_Click(null, null);
+                }
+                else if (result == MessageBoxResult.Cancel)
+                {
+                    string previousPath = currentCategoryPath;
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        suppressSelectionChange = true;
+                        foreach (TreeViewItem item in categoryTree.Items)
+                        {
+                            if ((string)item.Tag == previousPath)
+                            {
+                                item.IsSelected = true;
+                                break;
+                            }
+                        }
+                        suppressSelectionChange = false;
+                    }));
+                    return;
+                }
+                ClearAllDirty();
+            }
+
             currentCategoryPath = folderPath;
             LoadTrackFiles(folderPath);
         }
@@ -1772,6 +2207,43 @@ namespace PublishedAppTracker
             if (!Directory.Exists(folderPath))
                 return;
 
+            // Check for SPS XML file first
+            string[] xmlFiles = Directory.GetFiles(folderPath, "*.xml");
+            if (xmlFiles.Length > 0)
+            {
+                string spsFile = xmlFiles[0];
+                string publisherFilter;
+                string suitePath;
+                List<string> selectedSuites;
+                List<TrackItem> spsItems = TrackItem.LoadSpsListFromFile(spsFile, out publisherFilter, out suitePath, out selectedSuites);
+
+                foreach (TrackItem item in spsItems)
+                {
+                    currentItems.Add(item);
+                }
+
+                txtPublisherFilter.Text = publisherFilter;
+
+                isLoadingFields = true;
+                itemList.ItemsSource = null;
+                itemList.ItemsSource = currentItems;
+
+                if (currentItems.Count > 0)
+                {
+                    itemList.SelectedIndex = 0;
+                }
+                else
+                {
+                    ClearTrackFields();
+                }
+                isLoadingFields = false;
+
+                ClearAllDirty();
+                statusFile.Text = "SPS Category: " + folderName + " — " + currentItems.Count + " items";
+                return;
+            }
+
+            // Standard category — load individual .track files
             string[] trackFiles = Directory.GetFiles(folderPath, "*.track");
 
             foreach (string file in trackFiles)
@@ -1780,6 +2252,7 @@ namespace PublishedAppTracker
                 currentItems.Add(item);
             }
 
+            isLoadingFields = true;
             itemList.ItemsSource = null;
             itemList.ItemsSource = currentItems;
 
@@ -1791,13 +2264,114 @@ namespace PublishedAppTracker
             {
                 ClearTrackFields();
             }
+            isLoadingFields = false;
 
+            ClearAllDirty();
             statusFile.Text = "Category: " + folderName + " — " + currentItems.Count + " items";
         }
 
         // ============================
         // Item List
         // ============================
+
+        private void ItemList_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (suppressAutoDownload || suppressSelectionChange)
+                return;
+
+            if (!isDirty || currentTrackItem == null)
+                return;
+
+            // Check if the click is on a different item
+            DependencyObject dep = (DependencyObject)e.OriginalSource;
+            while (dep != null && !(dep is ListViewItem))
+                dep = VisualTreeHelper.GetParent(dep);
+
+            if (dep == null)
+                return;
+
+            ListViewItem clickedContainer = dep as ListViewItem;
+            TrackItem clickedItem = clickedContainer.Content as TrackItem;
+
+            if (clickedItem == null || clickedItem == currentTrackItem)
+                return;
+
+            // Stop the click from changing selection — we'll handle it ourselves
+            e.Handled = true;
+
+            // Unsaved changes — prompt
+            MessageBoxResult result = MessageBox.Show(
+                "Track '" + currentTrackItem.TrackName + "' has unsaved changes.\n\n" +
+                "Save before switching?",
+                "PAT v7",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Warning);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                // Save current track
+                SaveCurrentTrackFields();
+                currentTrackItem.SaveToFile();
+                ClearDirty();
+                statusFile.Text = "Saved: " + currentTrackItem.TrackName;
+
+                // Now switch to the clicked item
+                itemList.SelectedItem = clickedItem;
+            }
+            else if (result == MessageBoxResult.No)
+            {
+                // Discard changes — reload original values from file
+                currentTrackItem.ReloadFromFile();
+
+                isLoadingFields = true;
+                editName.Text = currentTrackItem.TrackName;
+                editTrackURL.Text = currentTrackItem.TrackURL;
+                editStartString.Text = currentTrackItem.StartString;
+                editStopString.Text = currentTrackItem.StopString;
+                editDownloadURL.Text = currentTrackItem.DownloadURL;
+                editVersion.Text = currentTrackItem.Version;
+                editReleaseDate.Text = currentTrackItem.ReleaseDate;
+                editPublisherName.Text = currentTrackItem.PublisherName;
+                editSuiteName.Text = currentTrackItem.SuiteName;
+                isLoadingFields = false;
+
+                currentTrackItem.IsDirtyInMemory = false;
+                ClearDirty();
+                RecalculateCategoryDirty();
+
+                // Now switch to the clicked item
+                itemList.SelectedItem = clickedItem;
+            }
+            // Cancel — do nothing, selection stays
+        }
+
+		private void SaveCurrentTrackFields()
+		{
+		    if (currentTrackItem == null) return;
+
+		    currentTrackItem.TrackName = editName.Text;
+		    currentTrackItem.TrackURL = editTrackURL.Text;
+		    currentTrackItem.StartString = editStartString.Text;
+		    currentTrackItem.StopString = editStopString.Text;
+		    currentTrackItem.DownloadURL = editDownloadURL.Text;
+		    currentTrackItem.Version = editVersion.Text;
+
+		    // If a newer version was detected, apply it
+		    if (!string.IsNullOrEmpty(currentTrackItem.LatestVersion) &&
+		        currentTrackItem.TrackStatus != "error")
+		    {
+		        currentTrackItem.Version = currentTrackItem.LatestVersion;
+		        editVersion.Text = currentTrackItem.LatestVersion;
+
+		        // Version now matches latest, so status is unchanged
+		        if (currentTrackItem.TrackStatus == "changed")
+		            currentTrackItem.TrackStatus = "unchanged";
+		    }
+
+		    currentTrackItem.ReleaseDate = editReleaseDate.Text;
+		    currentTrackItem.PublisherName = editPublisherName.Text;
+		    currentTrackItem.SuiteName = editSuiteName.Text;
+		}
 
         private void ItemList_SelectionChanged(object sender,
             SelectionChangedEventArgs e)
@@ -1838,7 +2412,8 @@ namespace PublishedAppTracker
             }
 			statusFile.Text = "Track: " + selected.TrackName + " | Mode: [" + selected.TrackMode + "]";
             isLoadingFields = false;
-            ClearDirty();
+            isDirty = false;
+            UpdateSaveButtonStates();
 
             statusFile.Text = "Track: " + selected.TrackName +
                 " (" + Path.GetFileName(selected.FilePath) + ")";
@@ -1877,18 +2452,41 @@ namespace PublishedAppTracker
                 return;
 
             string sortBy = "";
+
+            // Try DisplayMemberBinding first
             if (header.Column.DisplayMemberBinding is System.Windows.Data.Binding binding)
             {
                 sortBy = binding.Path.Path;
             }
-            else
+
+            // If no DisplayMemberBinding, extract from CellTemplate
+            if (string.IsNullOrEmpty(sortBy) && header.Column.CellTemplate != null)
             {
-                return;
+                // Match column header text to the property binding
+                string headerText = header.Column.Header as string;
+                if (!string.IsNullOrEmpty(headerText))
+                {
+                    // Look up the binding from column settings
+                    List<ColumnSetting> colSettings = windowSettings.ColumnSettings;
+                    if (colSettings.Count == 0)
+                        colSettings = WindowSettings.GetDefaultColumns();
+
+                    foreach (ColumnSetting cs in colSettings)
+                    {
+                        if (cs.Header == headerText)
+                        {
+                            sortBy = cs.Binding;
+                            break;
+                        }
+                    }
+                }
             }
 
+            // Skip non-sortable columns (checkbox, status icon)
             if (string.IsNullOrEmpty(sortBy))
                 return;
 
+            // Toggle sort direction
             if (sortBy == lastSortColumn)
             {
                 lastSortAscending = !lastSortAscending;
@@ -1899,17 +2497,33 @@ namespace PublishedAppTracker
                 lastSortAscending = true;
             }
 
-            currentItems.Sort((a, b) =>
-            {
-                string valA = GetPropertyValue(a, sortBy);
-                string valB = GetPropertyValue(b, sortBy);
-                int result = string.Compare(valA, valB,
-                    StringComparison.OrdinalIgnoreCase);
-                return lastSortAscending ? result : -result;
-            });
+            // Remember selection
+            int savedIndex = itemList.SelectedIndex;
+            TrackItem savedItem = currentTrackItem;
 
+            var sorted = currentItems.OrderBy(x => GetPropertyValue(x, sortBy),
+                StringComparer.OrdinalIgnoreCase).ToList();
+            if (!lastSortAscending)
+                sorted.Reverse();
+
+            currentItems.Clear();
+            foreach (var item in sorted)
+                currentItems.Add(item);
+
+            suppressAutoDownload = true;
             itemList.ItemsSource = null;
             itemList.ItemsSource = currentItems;
+
+            // Restore selection to the same item (not same index)
+            if (savedItem != null)
+            {
+                int newIndex = currentItems.IndexOf(savedItem);
+                if (newIndex >= 0)
+                    itemList.SelectedIndex = newIndex;
+            }
+            suppressAutoDownload = false;
+
+            statusFile.Text = "Sorted by " + sortBy + (lastSortAscending ? " ▲" : " ▼");
         }
 
         private string GetPropertyValue(TrackItem item, string propertyName)
@@ -1954,7 +2568,7 @@ namespace PublishedAppTracker
                 return;
             }
 
-            await BatchCheck(currentItems);
+            await BatchCheck(currentItems.ToList());
         }
 
         private async System.Threading.Tasks.Task BatchCheck(List<TrackItem> items)
@@ -1966,6 +2580,10 @@ namespace PublishedAppTracker
             int errors = 0;
             int newChecks = 0;
 
+            // Remember selection before we start
+            int savedIndex = itemList.SelectedIndex;
+            TrackItem savedItem = currentTrackItem;
+
             statusProgress.IsIndeterminate = false;
             statusProgress.Minimum = 0;
             statusProgress.Maximum = total;
@@ -1973,6 +2591,16 @@ namespace PublishedAppTracker
 
             btnCheckSelected.IsEnabled = false;
             btnCheckAll.IsEnabled = false;
+
+            // Determine if this is an SPS category (save once at end, not per-item)
+            bool isSpsCategory = false;
+            if (!string.IsNullOrEmpty(currentCategoryPath))
+            {
+                if (Directory.GetFiles(currentCategoryPath, "*.xml").Length > 0)
+                    isSpsCategory = true;
+                else if (currentItems.Count > 0 && string.IsNullOrEmpty(currentItems[0].FilePath))
+                    isSpsCategory = true;
+            }
 
             try
             {
@@ -2034,7 +2662,6 @@ namespace PublishedAppTracker
                                     {
                                         long downloadBytes = System.Text.Encoding.UTF8.GetByteCount(text);
                                         CheckResult result = item.ApplyCheck(text, downloadBytes);
-                                        item.SaveToFile();
 
                                         switch (result.Status)
                                         {
@@ -2048,7 +2675,6 @@ namespace PublishedAppTracker
                                     {
                                         item.TrackStatus = "error";
                                         item.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                                        item.SaveToFile();
                                         errors++;
                                     }
                                 }
@@ -2057,7 +2683,6 @@ namespace PublishedAppTracker
                                     item.TrackStatus = "error";
                                     item.TrackURLStatus = "error";
                                     item.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                                    item.SaveToFile();
                                     errors++;
                                 }
                             }
@@ -2066,7 +2691,6 @@ namespace PublishedAppTracker
                                 item.TrackStatus = "error";
                                 item.TrackURLStatus = "error";
                                 item.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                                item.SaveToFile();
                                 errors++;
                             }
                         }
@@ -2075,10 +2699,20 @@ namespace PublishedAppTracker
                             // HTML mode (original)
                             SetupHttpHeaders(url);
                             string source = await httpClient.GetStringAsync(url);
+
+                            // Detect bot challenge — fall back to WebView
+                            if (IsChallengePage(source))
+                            {
+                                statusFile.Text = "Checking " + current + "/" + total +
+                                    ": " + item.TrackName + " (bot challenge, using WebView2)";
+                                string wvSource = await DownloadViaWebView(url);
+                                if (!string.IsNullOrEmpty(wvSource) && !IsChallengePage(wvSource))
+                                    source = wvSource;
+                            }
+
                             long downloadBytes = System.Text.Encoding.UTF8.GetByteCount(source);
 
                             CheckResult result = item.ApplyCheck(source, downloadBytes);
-                            item.SaveToFile();
 
                             switch (result.Status)
                             {
@@ -2102,7 +2736,6 @@ namespace PublishedAppTracker
                             {
                                 long downloadBytes = System.Text.Encoding.UTF8.GetByteCount(source);
                                 CheckResult result = item.ApplyCheck(source, downloadBytes);
-                                item.SaveToFile();
 
                                 switch (result.Status)
                                 {
@@ -2121,7 +2754,6 @@ namespace PublishedAppTracker
                                 item.HashStatus = "";
                                 item.LatestVersionStatus = "";
                                 item.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                                item.SaveToFile();
                                 errors++;
                             }
                         }
@@ -2134,7 +2766,6 @@ namespace PublishedAppTracker
                             item.HashStatus = "";
                             item.LatestVersionStatus = "";
                             item.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                            item.SaveToFile();
                             errors++;
                         }
                     }
@@ -2152,14 +2783,59 @@ namespace PublishedAppTracker
                 statusProgress.Maximum = 100;
             }
 
+			// Mark dirty since check results have changed item data
+			if (!isSpsCategory && (changed > 0 || newChecks > 0 || errors > 0))
+			{
+			    isCategoryDirty = true;
+			    UpdateSaveButtonStates();
+			}
+
+            // For SPS categories, save all results once at the end
+            if (isSpsCategory && !string.IsNullOrEmpty(currentCategoryPath))
+            {
+                try
+                {
+                    string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
+                    string xmlPath;
+                    string publisherFilter = txtPublisherFilter.Text.Trim();
+                    string suitePath = "";
+                    List<string> savedSuites = windowSettings.SelectedSuites;
+
+                    if (xmlFiles.Length > 0)
+                    {
+                        xmlPath = xmlFiles[0];
+                        string existingPf, existingSp;
+                        List<string> existingSuites;
+                        TrackItem.LoadSpsListFromFile(xmlPath, out existingPf, out existingSp, out existingSuites);
+                        if (!string.IsNullOrEmpty(existingSp))
+                            suitePath = existingSp;
+                        if (existingSuites.Count > 0)
+                            savedSuites = existingSuites;
+                    }
+                    else
+                    {
+                        string folderName = Path.GetFileName(currentCategoryPath);
+                        xmlPath = Path.Combine(currentCategoryPath, folderName + ".xml");
+                    }
+
+                    TrackItem.SaveSpsListToFile(xmlPath, currentItems.ToList(), publisherFilter, suitePath, savedSuites);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error saving SPS check results: " + ex.Message,
+                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+
             // Refresh the list and preserve selection
-            int prevIndex = currentItems.IndexOf(currentTrackItem);
+            isLoadingFields = true;
             suppressAutoDownload = true;
             itemList.ItemsSource = null;
             itemList.ItemsSource = currentItems;
-            if (prevIndex >= 0)
-                itemList.SelectedIndex = prevIndex;
+            if (savedIndex >= 0 && savedIndex < currentItems.Count)
+                itemList.SelectedIndex = savedIndex;
             suppressAutoDownload = false;
+            isLoadingFields = false;
 
             // Update fields if a track is loaded
             if (currentTrackItem != null)
@@ -2176,6 +2852,19 @@ namespace PublishedAppTracker
             {
                 AutoDownloadSource(currentTrackItem.TrackURL);
             }
+
+            // Set dirty flags based on check results
+            if (changed > 0 || newChecks > 0)
+            {
+                isCategoryDirty = true;
+                // If the currently selected track was in the checked set and was modified, mark isDirty too
+                if (currentTrackItem != null && currentTrackItem.IsDirtyInMemory)
+                    isDirty = true;
+                UpdateSaveButtonStates();
+            }
+
+            statusFile.Text = "Done: " + changed + " changed, " + unchanged +
+                " unchanged, " + newChecks + " new, " + errors + " errors";
         }
 
         private DataTemplate CreateStatusCellTemplate()
@@ -2343,6 +3032,23 @@ namespace PublishedAppTracker
             {
                 SetupHttpHeaders(url);
                 string source = await httpClient.GetStringAsync(url);
+
+                // Detect bot challenge — fall back to WebView
+                if (IsChallengePage(source))
+                {
+                    statusFile.Text = "Bot challenge detected, using WebView2...";
+                    string webViewSource = await DownloadViaWebView(url);
+                    if (!string.IsNullOrEmpty(webViewSource) && !IsChallengePage(webViewSource))
+                    {
+                        source = webViewSource;
+                        statusFile.Text = "Loaded via WebView2: " + url;
+                    }
+                    else
+                    {
+                        statusFile.Text = "Challenge page — WebView2 fallback failed: " + url;
+                    }
+                }
+
                 currentSource = source;
                 DisplaySource(currentSource);
             }
@@ -2377,13 +3083,34 @@ namespace PublishedAppTracker
         // Track Settings Buttons
         // ============================
 
-        private void MarkDirty()
+		private void MarkDirty()
+		{
+		    if (isLoadingFields) return;
+		    isDirty = true;
+		    isCategoryDirty = true;
+		    if (currentTrackItem != null)
+		        currentTrackItem.IsDirtyInMemory = true;
+		    UpdateSaveButtonStates();
+		}
+
+        private void MarkCategoryDirty()
         {
-            if (isLoadingFields) return;
-            if (isDirty) return;
-            isDirty = true;
+            isCategoryDirty = true;
             UpdateSaveButtonStates();
         }
+
+		private void RecalculateCategoryDirty()
+		{
+		    isCategoryDirty = false;
+		    foreach (TrackItem item in currentItems)
+		    {
+		        if (item.IsDirtyInMemory)
+		        {
+		            isCategoryDirty = true;
+		            break;
+		        }
+		    }
+		}
 
         private void ClearDirty()
         {
@@ -2391,36 +3118,56 @@ namespace PublishedAppTracker
             UpdateSaveButtonStates();
         }
 
-        private void UpdateSaveButtonStates()
-        {
-            double enabledOpacity = 1.0;
-            double disabledOpacity = 0.4;
+		private void ClearAllDirty()
+		{
+		    isDirty = false;
+		    isCategoryDirty = false;
+		    foreach (TrackItem item in currentItems)
+		    {
+		        item.IsDirtyInMemory = false;
+		    }
+		    UpdateSaveButtonStates();
+		}
 
-            if (btnSaveTrack != null)
-            {
-                btnSaveTrack.IsEnabled = isDirty;
-                btnSaveTrack.Opacity = isDirty ? enabledOpacity : disabledOpacity;
-            }
-            if (btnSaveTrackAs != null)
-            {
-                btnSaveTrackAs.IsEnabled = isDirty;
-                btnSaveTrackAs.Opacity = isDirty ? enabledOpacity : disabledOpacity;
-            }
-            if (btnSaveMain != null)
-            {
-                btnSaveMain.IsEnabled = isDirty;
-                btnSaveMain.Opacity = isDirty ? enabledOpacity : disabledOpacity;
-            }
-            if (btnSaveAsMain != null)
-            {
-                btnSaveAsMain.IsEnabled = isDirty;
-                btnSaveAsMain.Opacity = isDirty ? enabledOpacity : disabledOpacity;
-            }
-        }
+		private void UpdateSaveButtonStates()
+		{
+		    double enabledOpacity = 1.0;
+		    double disabledOpacity = 0.4;
+
+		    // Save and Save As reflect the CURRENT track only
+		    if (btnSaveTrack != null)
+		    {
+		        btnSaveTrack.IsEnabled = isDirty;
+		        btnSaveTrack.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+		    }
+		    if (btnSaveTrackAs != null)
+		    {
+		        btnSaveTrackAs.IsEnabled = isDirty;
+		        btnSaveTrackAs.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+		    }
+		    if (btnSaveMain != null)
+		    {
+		        btnSaveMain.IsEnabled = isDirty;
+		        btnSaveMain.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+		    }
+		    if (btnSaveAsMain != null)
+		    {
+		        btnSaveAsMain.IsEnabled = isDirty;
+		        btnSaveAsMain.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+		    }
+
+		    // Save All reflects the WHOLE CATEGORY
+		    if (btnSaveAll != null)
+		    {
+		        btnSaveAll.IsEnabled = isCategoryDirty;
+		        btnSaveAll.Opacity = isCategoryDirty ? enabledOpacity : disabledOpacity;
+		    }
+		}
 
         private void Field_TextChanged(object sender, TextChangedEventArgs e)
         {
-            MarkDirty();
+            if (!isLoadingFields)
+                MarkDirty();
         }
 
         private void OpenFileInEditor_Click(object sender, RoutedEventArgs e)
@@ -2493,6 +3240,62 @@ namespace PublishedAppTracker
             }
         }
 
+		private void OpenInSpsBuilder_Click(object sender, RoutedEventArgs e)
+		{
+		    if (currentTrackItem == null)
+		    {
+		        MessageBox.Show("No track selected.", "PAT v7",
+		            MessageBoxButton.OK, MessageBoxImage.Warning);
+		        return;
+		    }
+
+		    string spsRoot = windowSettings.SpsSuiteRootPath;
+		    if (string.IsNullOrEmpty(spsRoot) || !Directory.Exists(spsRoot))
+		    {
+		        MessageBox.Show("SPSSuite path is not set.\n\nSet it in App Settings first.",
+		            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+		        return;
+		    }
+
+		    string builderPath = Path.Combine(spsRoot, "SyMenuSuite", "SPS_Builder_sps", "SPSBuilder.exe");
+		    if (!File.Exists(builderPath))
+		    {
+		        MessageBox.Show("SPSBuilder.exe not found at:\n" + builderPath,
+		            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+		        return;
+		    }
+
+		    try
+		    {
+		        string suiteName = currentTrackItem.SuiteName;
+		        string spsFileName = currentTrackItem.SpsFileName;
+
+		        if (string.IsNullOrEmpty(suiteName) || string.IsNullOrEmpty(spsFileName))
+		        {
+		            MessageBox.Show("No SPS file information for this track.\n\nTry rebuilding the category first.",
+		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+		            return;
+		        }
+
+		        string spsFile = Path.Combine(spsRoot, suiteName, "_Cache", spsFileName);
+
+		        if (!File.Exists(spsFile))
+		        {
+		            MessageBox.Show("SPS file not found:\n" + spsFile,
+		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+		            return;
+		        }
+
+		        System.Diagnostics.Process.Start(builderPath, "\"" + spsFile + "\"");
+		        statusFile.Text = "Opened SPS Builder: " + spsFileName;
+		    }
+		    catch (Exception ex)
+		    {
+		        MessageBox.Show("Error launching SPS Builder: " + ex.Message,
+		            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+		    }
+		}
+
         private void BrowseEditor_Click(object sender, RoutedEventArgs e)
         {
             Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog();
@@ -2525,6 +3328,67 @@ namespace PublishedAppTracker
 
         private void SaveTrack_Click(object sender, RoutedEventArgs e)
         {
+            // Check if this is an SPS category — save as single XML
+            bool isSpsCategory = false;
+            if (!string.IsNullOrEmpty(currentCategoryPath))
+            {
+                if (Directory.GetFiles(currentCategoryPath, "*.xml").Length > 0)
+                    isSpsCategory = true;
+                else if (currentItems.Count > 0 && string.IsNullOrEmpty(currentItems[0].FilePath))
+                    isSpsCategory = true;
+            }
+
+            if (isSpsCategory)
+            {
+                SaveCurrentTrackFields();
+                string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
+                string xmlPath;
+                string publisherFilter = txtPublisherFilter.Text.Trim();
+                string suitePath = "";
+                List<string> savedSuites = windowSettings.SelectedSuites;
+
+                if (xmlFiles.Length > 0)
+                {
+                    xmlPath = xmlFiles[0];
+                    string existingPf, existingSp;
+                    List<string> existingSuites;
+                    TrackItem.LoadSpsListFromFile(xmlPath, out existingPf, out existingSp, out existingSuites);
+                    if (!string.IsNullOrEmpty(existingSp))
+                        suitePath = existingSp;
+                    if (existingSuites.Count > 0)
+                        savedSuites = existingSuites;
+                }
+                else
+                {
+                    string folderName = Path.GetFileName(currentCategoryPath);
+                    xmlPath = Path.Combine(currentCategoryPath, folderName + ".xml");
+                }
+
+                TrackItem.SaveSpsListToFile(xmlPath, currentItems.ToList(), publisherFilter, suitePath, savedSuites);
+				// Clear dirty on the saved track, then recalculate
+				if (currentTrackItem != null)
+				    currentTrackItem.IsDirtyInMemory = false;
+				isDirty = false;
+				RecalculateCategoryDirty();
+				UpdateSaveButtonStates();
+
+				isLoadingFields = true;
+				suppressAutoDownload = true;
+				int selectedIndex = itemList.SelectedIndex;
+				itemList.ItemsSource = null;
+				itemList.ItemsSource = currentItems;
+				if (selectedIndex >= 0)
+				    itemList.SelectedIndex = selectedIndex;
+				suppressAutoDownload = false;
+				isLoadingFields = false;
+
+				suppressCategoryReload = true;
+				RefreshCategoryTree();
+				suppressCategoryReload = false;
+				statusFile.Text = "SPS category saved: " + Path.GetFileName(currentCategoryPath);
+				return;
+            }
+
             // Use stored reference instead of relying on list selection
             TrackItem selected = currentTrackItem;
 
@@ -2553,6 +3417,11 @@ namespace PublishedAppTracker
             selected.StopString = editStopString.Text;
             selected.DownloadURL = editDownloadURL.Text;
             selected.Version = editVersion.Text;
+			if (!string.IsNullOrEmpty(selected.LatestVersion) && selected.TrackStatus != "error")
+			{
+			    selected.Version = selected.LatestVersion;
+			    editVersion.Text = selected.LatestVersion;
+			}
             selected.ReleaseDate = editReleaseDate.Text;
             selected.PublisherName = editPublisherName.Text;
             selected.SuiteName = editSuiteName.Text;
@@ -2595,19 +3464,27 @@ namespace PublishedAppTracker
                 }
 
                 selected.SaveToFile();
-                ClearDirty();
 
-                int selectedIndex = currentItems.IndexOf(selected);
+                // Clear dirty on this track only, recalculate category
+                selected.IsDirtyInMemory = false;
+                isDirty = false;
+                RecalculateCategoryDirty();
+                UpdateSaveButtonStates();
+
+                isLoadingFields = true;
                 suppressAutoDownload = true;
+                int selectedIndex = currentItems.IndexOf(selected);
                 itemList.ItemsSource = null;
                 itemList.ItemsSource = currentItems;
                 if (selectedIndex >= 0)
                     itemList.SelectedIndex = selectedIndex;
                 suppressAutoDownload = false;
+                isLoadingFields = false;
 
                 UpdateVersionDisplay();
+                suppressCategoryReload = true;
                 RefreshCategoryTree();
-                // Re-download source for the current track
+                suppressCategoryReload = false;
                 if (currentTrackItem != null && !string.IsNullOrWhiteSpace(currentTrackItem.TrackURL))
                 {
                     AutoDownloadSource(currentTrackItem.TrackURL);
@@ -2646,19 +3523,28 @@ namespace PublishedAppTracker
                         File.Delete(selected.FilePath);
                     }
 
+                    isLoadingFields = true;
+
                     // Reload the current category
                     TreeViewItem selectedCat = categoryTree.SelectedItem as TreeViewItem;
-                    if (selectedCat != null)
+                    if (!string.IsNullOrEmpty(currentCategoryPath))
                     {
-                        LoadTrackFiles((string)selectedCat.Tag);
+                        LoadTrackFiles(currentCategoryPath);
                     }
 
                     RefreshCategoryTree();
                     ClearTrackFields();
+
+                    isLoadingFields = false;
+                    RecalculateCategoryDirty();
+                    isDirty = false;
+                    UpdateSaveButtonStates();
+
                     statusFile.Text = "Deleted: " + selected.TrackName;
                 }
                 catch (Exception ex)
                 {
+                    isLoadingFields = false;
                     MessageBox.Show("Error deleting track: " + ex.Message,
                         "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
@@ -2735,23 +3621,24 @@ namespace PublishedAppTracker
             }
         }
 
-
-        private void ClearTrackFields()
-        {
-            currentTrackItem = null;
-            editName.Text = "";
-            editTrackURL.Text = "";
-            editStartString.Text = "";
-            editStopString.Text = "";
-            editDownloadURL.Text = "";
-            editVersion.Text = "";
-            editLatestVersion.Text = "";
-            editLatestVersion.Foreground = Brushes.Gray;
-            btnUpdateVersion.IsEnabled = false;
-            editReleaseDate.Text = "";
-            editPublisherName.Text = "";
-            editSuiteName.Text = "";
-        }
+		private void ClearTrackFields()
+		{
+		    isLoadingFields = true;    // ADD THIS
+		    currentTrackItem = null;
+		    editName.Text = "";
+		    editTrackURL.Text = "";
+		    editStartString.Text = "";
+		    editStopString.Text = "";
+		    editDownloadURL.Text = "";
+		    editVersion.Text = "";
+		    editLatestVersion.Text = "";
+		    editLatestVersion.Foreground = Brushes.Gray;
+		    btnUpdateVersion.IsEnabled = false;
+		    editReleaseDate.Text = "";
+		    editPublisherName.Text = "";
+		    editSuiteName.Text = "";
+		    isLoadingFields = false;   // ADD THIS
+		}
 
         private void UpdateVersion_Click(object sender, RoutedEventArgs e)
         {
@@ -2770,7 +3657,49 @@ namespace PublishedAppTracker
                 // Now update the version
                 editVersion.Text = currentTrackItem.LatestVersion;
                 currentTrackItem.Version = currentTrackItem.LatestVersion;
-                currentTrackItem.SaveToFile();
+
+                // Check if this is an SPS category — save as XML instead of .track
+                bool isSpsCategory = false;
+                if (!string.IsNullOrEmpty(currentCategoryPath))
+                {
+                    if (Directory.GetFiles(currentCategoryPath, "*.xml").Length > 0)
+                        isSpsCategory = true;
+                    else if (currentItems.Count > 0 && string.IsNullOrEmpty(currentItems[0].FilePath))
+                        isSpsCategory = true;
+                }
+
+                if (isSpsCategory)
+                {
+                    // Save the entire SPS category XML
+                    string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
+                    string xmlPath;
+                    string publisherFilter = txtPublisherFilter.Text.Trim();
+                    string suitePath = "";
+                    List<string> savedSuites = windowSettings.SelectedSuites;
+
+                    if (xmlFiles.Length > 0)
+                    {
+                        xmlPath = xmlFiles[0];
+                        string existingPf, existingSp;
+                        List<string> existingSuites;
+                        TrackItem.LoadSpsListFromFile(xmlPath, out existingPf, out existingSp, out existingSuites);
+                        if (!string.IsNullOrEmpty(existingSp))
+                            suitePath = existingSp;
+                        if (existingSuites.Count > 0)
+                            savedSuites = existingSuites;
+                    }
+                    else
+                    {
+                        string folderName = Path.GetFileName(currentCategoryPath);
+                        xmlPath = Path.Combine(currentCategoryPath, folderName + ".xml");
+                    }
+
+                    TrackItem.SaveSpsListToFile(xmlPath, currentItems.ToList(), publisherFilter, suitePath, savedSuites);
+                }
+                else
+                {
+                    currentTrackItem.SaveToFile();
+                }
 
                 // Refresh list
                 int selectedIndex = currentItems.IndexOf(currentTrackItem);
@@ -2815,7 +3744,128 @@ namespace PublishedAppTracker
 		        btnUpdateVersion.IsEnabled = true;
 		    }
 		}
-		
+
+        private string ResolveDownloadURL(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return url;
+
+            string version = editVersion.Text.Trim();
+
+            bool hasPlaceholder = url.Contains("{VERSION}") ||
+                                  url.Contains("{VERSION_}") ||
+                                  url.Contains("{VERSION-}");
+
+            if (hasPlaceholder)
+            {
+                if (string.IsNullOrWhiteSpace(version))
+                {
+                    MessageBox.Show(
+                        "Download URL contains a {VERSION} placeholder but the Version field is empty.\n\n" +
+                        "Please update the version first.",
+                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return null;
+                }
+
+                url = url.Replace("{VERSION_}", version.Replace(".", "_"));
+                url = url.Replace("{VERSION-}", version.Replace(".", "-"));
+                url = url.Replace("{VERSION}", version);
+            }
+
+            return url;
+        }
+
+        private async void DownloadFile_Click(object sender, RoutedEventArgs e)
+        {
+            string rawUrl = editDownloadURL.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(rawUrl))
+            {
+                MessageBox.Show("No Download URL specified.", "PAT v7",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            string resolvedUrl = ResolveDownloadURL(rawUrl);
+            if (resolvedUrl == null)
+                return;
+
+            // Extract filename from URL
+            string fileName;
+            try
+            {
+                Uri uri = new Uri(resolvedUrl);
+                fileName = Path.GetFileName(uri.LocalPath);
+                if (string.IsNullOrWhiteSpace(fileName))
+                    fileName = "download";
+            }
+            catch
+            {
+                fileName = "download";
+            }
+
+            // Ask user where to save
+            Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog();
+            dlg.FileName = fileName;
+            dlg.Filter = "All files (*.*)|*.*";
+            dlg.Title = "Save Downloaded File";
+
+            if (dlg.ShowDialog() != true)
+                return;
+
+            string savePath = dlg.FileName;
+
+            try
+            {
+                statusFile.Text = "Downloading: " + resolvedUrl;
+
+                using (HttpClient client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromMinutes(10);
+
+                    using (HttpResponseMessage response = await client.GetAsync(resolvedUrl, HttpCompletionOption.ResponseHeadersRead))
+                    {
+                        response.EnsureSuccessStatusCode();
+
+                        long? totalBytes = response.Content.Headers.ContentLength;
+
+                        using (Stream contentStream = await response.Content.ReadAsStreamAsync())
+                        using (FileStream fileStream = new FileStream(savePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            byte[] buffer = new byte[81920];
+                            long totalRead = 0;
+                            int bytesRead;
+
+                            while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                            {
+                                await fileStream.WriteAsync(buffer, 0, bytesRead);
+                                totalRead += bytesRead;
+
+                                if (totalBytes.HasValue && totalBytes.Value > 0)
+                                {
+                                    int percent = (int)((totalRead * 100) / totalBytes.Value);
+                                    statusFile.Text = "Downloading: " + percent + "% (" +
+                                        (totalRead / 1024) + " KB / " + (totalBytes.Value / 1024) + " KB)";
+                                }
+                                else
+                                {
+                                    statusFile.Text = "Downloading: " + (totalRead / 1024) + " KB...";
+                                }
+                            }
+                        }
+                    }
+                }
+
+                statusFile.Text = "Downloaded: " + Path.GetFileName(savePath);
+            }
+            catch (Exception ex)
+            {
+                statusFile.Text = "Download failed.";
+                MessageBox.Show("Download failed:\n\n" + ex.Message, "PAT v7",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         // ============================
         // Layout Toggle
         // ============================
@@ -2824,6 +3874,15 @@ namespace PublishedAppTracker
         {
             // Save current layout's splitter positions before switching
             SaveCurrentSplitterPositions();
+
+            // If panel is collapsed, reset the state before switching
+            // so we get a clean starting position in the new layout
+            bool wasCollapsed = trackSettingsCollapsed;
+            if (trackSettingsCollapsed)
+            {
+                // Reset state without expanding — just clear the flag
+                trackSettingsCollapsed = false;
+            }
 
             isHorizontalLayout = !isHorizontalLayout;
 
@@ -2852,6 +3911,12 @@ namespace PublishedAppTracker
             this.Dispatcher.BeginInvoke(new Action(() =>
             {
                 ApplySplitterPositions();
+
+                // Re-apply collapsed state in the new layout
+                if (wasCollapsed)
+                {
+                    btnToggleTrackSettings.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                }
             }), System.Windows.Threading.DispatcherPriority.Loaded);
 
             statusFile.Text = isHorizontalLayout ? "Layout: Horizontal" : "Layout: Vertical";
@@ -3054,11 +4119,15 @@ namespace PublishedAppTracker
                 }
 
                 windowSettings.IsHorizontalLayout = isHorizontalLayout;
+                windowSettings.TrackSettingsCollapsed = trackSettingsCollapsed;
 
                 SaveCurrentSplitterPositions();
+                windowSettings.SearchEngine = searchEngineCombo.SelectedItem as string ?? "DuckDuckGo";
                 windowSettings.SourceFontSize = sourceView.FontSize;
                 SaveColumnSettings();
                 windowSettings.EditorPath = editEditorPath.Text.Trim();
+                if (editSyMenuPath != null)
+                    windowSettings.SpsSuiteRootPath = editSyMenuPath.Text.Trim();
                 windowSettings.Save(windowSettingsPath);
             }
             catch (Exception)
@@ -3105,7 +4174,7 @@ namespace PublishedAppTracker
 		    presetCombo.Items.Add("Default Light");
 		    presetCombo.Items.Add("Dark");
 		    presetCombo.Items.Add("Blue");
-		    // Add custom .theme files from Settings folder
+		    // Add custom .thm files from Settings folder
 		    PopulateThemeCombo(presetCombo);
 		    // Select the combo item matching the actually loaded theme
 			string activeThemeName = currentTheme.ThemeName ?? "";
@@ -3123,7 +4192,7 @@ namespace PublishedAppTracker
 			        break;
 			    }
 
-			    // Also match custom themes by filename (without .theme extension)
+			    // Also match custom themes by filename (without .thm extension)
 			    if (!string.IsNullOrEmpty(windowSettings.ActiveThemePath))
 			    {
 			        string fileBaseName = Path.GetFileNameWithoutExtension(windowSettings.ActiveThemePath);
@@ -3188,12 +4257,12 @@ namespace PublishedAppTracker
 			            previewTheme = ThemeSettings.GetBlueTheme();
 			            break;
 			        default:
-			            string themePath = Path.Combine(settingsPath, selected + ".theme");
+			            string themePath = Path.Combine(settingsPath, selected + ".thm");
 			            if (File.Exists(themePath))
 			            {
 			                previewTheme = ThemeSettings.Load(themePath);
 			                currentThemePath = themePath;
-			                windowSettings.ActiveThemePath = selected + ".theme";
+			                windowSettings.ActiveThemePath = selected + ".thm";
 			            }
 			            else
 			            {
@@ -3227,8 +4296,10 @@ namespace PublishedAppTracker
 			Button btnResetTheme = CreateToolBarButton("\xe845", "Revert to last saved/loaded theme", null);
 			themeToolBar.Items.Add(btnResetTheme);
 
-		    themeToolBarTray.ToolBars.Add(themeToolBar);
-		    themeOuterPanel.Children.Add(themeToolBarTray);
+			Button btnDeleteTheme = CreateToolBarButton("\uE74D", "Delete selected custom theme", null);
+			themeToolBar.Items.Add(btnDeleteTheme);
+
+		    themeToolBarTray.ToolBars.Add(themeToolBar);		    themeOuterPanel.Children.Add(themeToolBarTray);
 
 		    // ---- Scrollable color swatch area ----
 		    ScrollViewer themeScroll = new ScrollViewer();
@@ -3247,6 +4318,8 @@ namespace PublishedAppTracker
 		    AddThemeSection(themePanel, "Menu & Toolbar");
 		    AddColorSwatch(themePanel, "Menu Background", () => previewTheme.MenuBackground, c => previewTheme.MenuBackground = c);
 		    AddColorSwatch(themePanel, "Menu Foreground", () => previewTheme.MenuForeground, c => previewTheme.MenuForeground = c);
+		    AddColorSwatch(themePanel, "Main Toolbar Background", () => previewTheme.MainToolbarBackground, c => previewTheme.MainToolbarBackground = c);
+		    AddColorSwatch(themePanel, "Main Toolbar Foreground", () => previewTheme.MainToolbarForeground, c => previewTheme.MainToolbarForeground = c);
 		    AddColorSwatch(themePanel, "Toolbar Background", () => previewTheme.ToolbarBackground, c => previewTheme.ToolbarBackground = c);
 		    AddColorSwatch(themePanel, "Toolbar Foreground", () => previewTheme.ToolbarForeground, c => previewTheme.ToolbarForeground = c);
 
@@ -3307,10 +4380,13 @@ namespace PublishedAppTracker
 		    AddColorSwatch(themePanel, "TextBox Foreground", () => previewTheme.TextBoxForeground, c => previewTheme.TextBoxForeground = c);
 		    AddColorSwatch(themePanel, "Version Match / Found", () => previewTheme.VersionMatchColor, c => previewTheme.VersionMatchColor = c);
 			AddColorSwatch(themePanel, "Version Mismatch / Not Found", () => previewTheme.VersionMismatchColor, c => previewTheme.VersionMismatchColor = c);
+		    AddColorSwatch(themePanel, "Track Toolbar Background", () => previewTheme.TrackToolbarBackground, c => previewTheme.TrackToolbarBackground = c);
+		    AddColorSwatch(themePanel, "Track Toolbar Foreground", () => previewTheme.TrackToolbarForeground, c => previewTheme.TrackToolbarForeground = c);
 
 		    AddThemeSection(themePanel, "Tabs");
-		    AddColorSwatch(themePanel, "Tab Background", () => previewTheme.TabBackground, c => previewTheme.TabBackground = c);
-		    AddColorSwatch(themePanel, "Tab Foreground", () => previewTheme.TabForeground, c => previewTheme.TabForeground = c);
+		    AddColorSwatch(themePanel, "Tab Bar Background", () => previewTheme.TabBackground, c => previewTheme.TabBackground = c);
+		    AddColorSwatch(themePanel, "Tab Handle Background", () => previewTheme.TabHandleBackground, c => previewTheme.TabHandleBackground = c);
+		    AddColorSwatch(themePanel, "Tab Handle Foreground", () => previewTheme.TabHandleForeground, c => previewTheme.TabHandleForeground = c);
 		    AddColorSwatch(themePanel, "Tab Selected Background", () => previewTheme.TabSelectedBackground, c => previewTheme.TabSelectedBackground = c);
 		    AddColorSwatch(themePanel, "Tab Selected Foreground", () => previewTheme.TabSelectedForeground, c => previewTheme.TabSelectedForeground = c);
 		    AddColorSwatch(themePanel, "Tab Content Foreground", () => previewTheme.TabContentForeground, c => previewTheme.TabContentForeground = c);
@@ -3352,12 +4428,12 @@ namespace PublishedAppTracker
 			            break;
 			        default:
 			            // User theme from Settings folder
-			            string themePath = Path.Combine(settingsPath, selected + ".theme");
+			            string themePath = Path.Combine(settingsPath, selected + ".thm");
 			            if (File.Exists(themePath))
 			            {
 			                previewTheme = ThemeSettings.Load(themePath);
 			                currentThemePath = themePath;
-			                windowSettings.ActiveThemePath = selected + ".theme";
+			                windowSettings.ActiveThemePath = selected + ".thm";
 			            }
 			            else
 			            {
@@ -3374,7 +4450,7 @@ namespace PublishedAppTracker
 		    {
 		        Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog();
 		        dlg.Title = "Load Theme";
-		        dlg.Filter = "Theme Files (*.theme)|*.theme|XML Files (*.xml)|*.xml|All Files (*.*)|*.*";
+		        dlg.Filter = "Theme Files (*.thm)|*.thm|XML Files (*.xml)|*.xml|All Files (*.*)|*.*";
 		        dlg.InitialDirectory = settingsPath;
 
 		        if (dlg.ShowDialog() == true)
@@ -3413,12 +4489,12 @@ namespace PublishedAppTracker
 			    if (!string.IsNullOrEmpty(selected) &&
 			        selected != "Default Light" && selected != "Dark" && selected != "Blue")
 			    {
-			        string savePath = Path.Combine(settingsPath, selected + ".theme");
+			        string savePath = Path.Combine(settingsPath, selected + ".thm");
 			        previewTheme.ThemeName = selected;
 			        previewTheme.Save(savePath);
 			        currentThemePath = savePath;
 			        currentTheme = previewTheme.Clone();
-			        windowSettings.ActiveThemePath = selected + ".theme";
+			        windowSettings.ActiveThemePath = selected + ".thm";
 			        statusFile.Text = "Theme saved: " + selected;
 			        return;
 			    }
@@ -3440,11 +4516,11 @@ namespace PublishedAppTracker
 			    }
 
 			    previewTheme.ThemeName = themeName;
-			    string newPath = Path.Combine(settingsPath, safeName + ".theme");
+			    string newPath = Path.Combine(settingsPath, safeName + ".thm");
 			    previewTheme.Save(newPath);
 			    currentThemePath = newPath;
 			    currentTheme = previewTheme.Clone();
-			    windowSettings.ActiveThemePath = safeName + ".theme";
+			    windowSettings.ActiveThemePath = safeName + ".thm";
 			    int savedTabIndex = rightTabs.SelectedIndex;
 				PopulateThemeCombo(presetCombo);
 				rightTabs.SelectedIndex = savedTabIndex;
@@ -3469,12 +4545,12 @@ namespace PublishedAppTracker
 			    }
 
 			    previewTheme.ThemeName = themeName;
-			    string savePath = Path.Combine(settingsPath, safeName + ".theme");
+			    string savePath = Path.Combine(settingsPath, safeName + ".thm");
 
 			    if (File.Exists(savePath))
 			    {
 			        MessageBoxResult overwrite = MessageBox.Show(
-			            "Theme file '" + safeName + ".theme' already exists.\nOverwrite?",
+			            "Theme file '" + safeName + ".thm' already exists.\nOverwrite?",
 			            "PAT v7", MessageBoxButton.YesNo, MessageBoxImage.Question);
 			        if (overwrite != MessageBoxResult.Yes)
 			            return;
@@ -3483,7 +4559,7 @@ namespace PublishedAppTracker
 			    previewTheme.Save(savePath);
 			    currentThemePath = savePath;
 			    currentTheme = previewTheme.Clone();
-			    windowSettings.ActiveThemePath = safeName + ".theme";
+			    windowSettings.ActiveThemePath = safeName + ".thm";
 			    int savedTabIndex = rightTabs.SelectedIndex;
 				PopulateThemeCombo(presetCombo);
 				rightTabs.SelectedIndex = savedTabIndex;
@@ -3505,6 +4581,63 @@ namespace PublishedAppTracker
 		        statusFile.Text = "Theme reset to saved state";
 		    };
 
+		    btnDeleteTheme.Click += (s, ev) =>
+		    {
+		        string selected = presetCombo.SelectedItem as string;
+		        if (string.IsNullOrEmpty(selected))
+		            return;
+
+		        // Can't delete built-in themes
+		        if (selected == "Default Light" || selected == "Dark" || selected == "Blue")
+		        {
+		            MessageBox.Show("Built-in themes cannot be deleted.",
+		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+		            return;
+		        }
+
+		        string filePath = Path.Combine(settingsPath, selected + ".thm");
+		        if (!File.Exists(filePath))
+		        {
+		            MessageBox.Show("Theme file not found:\n" + filePath,
+		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+		            return;
+		        }
+
+		        MessageBoxResult confirm = MessageBox.Show(
+		            "Delete theme '" + selected + "'?\n\nThis will permanently delete the file:\n" + filePath,
+		            "PAT v7", MessageBoxButton.YesNo, MessageBoxImage.Question);
+		        if (confirm != MessageBoxResult.Yes)
+		            return;
+
+		        try
+		        {
+		            File.Delete(filePath);
+
+		            // If the deleted theme was the active one, revert to Default Light
+		            if (currentThemePath == filePath)
+		            {
+		                currentThemePath = "";
+		                windowSettings.ActiveThemePath = "";
+		                previewTheme = ThemeSettings.GetDefaultLight();
+		                currentTheme = previewTheme.Clone();
+		                ApplyTheme(previewTheme);
+		                RefreshThemeSwatches(themePanel);
+		            }
+
+		            // Refresh combo and select Default Light
+		            int savedTabIndex = rightTabs.SelectedIndex;
+		            PopulateThemeCombo(presetCombo);
+		            rightTabs.SelectedIndex = savedTabIndex;
+
+		            statusFile.Text = "Theme deleted: " + selected;
+		        }
+		        catch (Exception ex)
+		        {
+		            MessageBox.Show("Failed to delete theme:\n" + ex.Message,
+		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+		        }
+		    };
+
 		    themeScroll.Content = themePanel;
 		    themeOuterPanel.Children.Add(themeScroll);
 		    themeTab.Content = themeOuterPanel;
@@ -3524,10 +4657,10 @@ namespace PublishedAppTracker
 		    combo.Items.Add("Dark");
 		    combo.Items.Add("Blue");
 
-		    // Add custom .theme files from the Settings folder
+		    // Add custom .thm files from the Settings folder
 		    if (Directory.Exists(settingsPath))
 		    {
-		        string[] themeFiles = Directory.GetFiles(settingsPath, "*.theme");
+		        string[] themeFiles = Directory.GetFiles(settingsPath, "*.thm");
 		        bool separatorAdded = false;
 
 		        foreach (string file in themeFiles)
@@ -3741,10 +4874,10 @@ namespace PublishedAppTracker
 			    }
 			}
 			
-			// ---- Toolbar ----
-			SolidColorBrush tbBg = new SolidColorBrush(theme.ToolbarBackground);
-			SolidColorBrush tbFg = new SolidColorBrush(theme.ToolbarForeground);
-			ApplyThemeToToolBarTray(toolBarTray, tbBg, tbFg);
+			// ---- Main Toolbar (separate theme) ----
+			SolidColorBrush mainTbBg = new SolidColorBrush(theme.MainToolbarBackground);
+			SolidColorBrush mainTbFg = new SolidColorBrush(theme.MainToolbarForeground);
+			ApplyThemeToToolBarTray(toolBarTray, mainTbBg, mainTbFg);
 
 		    // ---- Status Bar ----
 		    SolidColorBrush sbBg = new SolidColorBrush(theme.StatusBarBackground);
@@ -4100,9 +5233,73 @@ namespace PublishedAppTracker
 		    // ---- Track Settings Panel ----
 		    ApplyThemeToPanel(trackSettingsPanel, theme);
 
+			// Theme the Track Settings label and header
+			if (trackSettingsLabel != null)
+			{
+			    trackSettingsLabel.Foreground = new SolidColorBrush(theme.TrackToolbarForeground);
+
+			    // Theme the header row background
+			    if (trackSettingsLabel.Parent is DockPanel headerRow)
+			    {
+			        headerRow.Background = new SolidColorBrush(theme.TrackToolbarBackground);
+			    }
+			}
+
+			// Theme the toggle button with hover
+			if (btnToggleTrackSettings != null)
+			{
+			    SolidColorBrush trkBg = new SolidColorBrush(theme.TrackToolbarBackground);
+			    SolidColorBrush trkFg = new SolidColorBrush(theme.TrackToolbarForeground);
+
+			    // Compute hover color
+			    byte trkR = theme.TrackToolbarBackground.R;
+			    byte trkG = theme.TrackToolbarBackground.G;
+			    byte trkB = theme.TrackToolbarBackground.B;
+			    Color trkHoverColor;
+			    if ((trkR + trkG + trkB) / 3 < 128)
+			        trkHoverColor = Color.FromRgb(
+			            (byte)Math.Min(255, trkR + 40),
+			            (byte)Math.Min(255, trkG + 40),
+			            (byte)Math.Min(255, trkB + 40));
+			    else
+			        trkHoverColor = Color.FromRgb(
+			            (byte)Math.Max(0, trkR - 40),
+			            (byte)Math.Max(0, trkG - 40),
+			            (byte)Math.Max(0, trkB - 40));
+			    SolidColorBrush trkHoverBrush = new SolidColorBrush(trkHoverColor);
+
+			    // Build a style with hover trigger
+			    Style toggleStyle = new Style(typeof(Button));
+			    toggleStyle.Setters.Add(new Setter(Button.BackgroundProperty, trkBg));
+			    toggleStyle.Setters.Add(new Setter(Button.ForegroundProperty, trkFg));
+			    toggleStyle.Setters.Add(new Setter(Button.BorderBrushProperty, trkBg));
+
+			    Trigger toggleHoverTrigger = new Trigger();
+			    toggleHoverTrigger.Property = UIElement.IsMouseOverProperty;
+			    toggleHoverTrigger.Value = true;
+			    toggleHoverTrigger.Setters.Add(new Setter(Button.BackgroundProperty, trkHoverBrush));
+			    toggleHoverTrigger.Setters.Add(new Setter(Button.BorderBrushProperty, trkHoverBrush));
+			    toggleStyle.Triggers.Add(toggleHoverTrigger);
+
+			    // Need a ControlTemplate to allow style triggers to override
+			    ControlTemplate toggleTemplate = new ControlTemplate(typeof(Button));
+			    var border = new FrameworkElementFactory(typeof(Border));
+			    border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+			    border.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+			    border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+			    var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+			    cp.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+			    cp.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+			    border.AppendChild(cp);
+			    toggleTemplate.VisualTree = border;
+			    toggleStyle.Setters.Add(new Setter(Button.TemplateProperty, toggleTemplate));
+
+			    btnToggleTrackSettings.Style = toggleStyle;
+			}
+
 			// Theme the Track Settings toolbar
-			SolidColorBrush tsTbBg = new SolidColorBrush(theme.ToolbarBackground);
-			SolidColorBrush tsTbFg = new SolidColorBrush(theme.ToolbarForeground);
+			SolidColorBrush tsTbBg = new SolidColorBrush(theme.TrackToolbarBackground);
+			SolidColorBrush tsTbFg = new SolidColorBrush(theme.TrackToolbarForeground);
 			foreach (var child in trackSettingsPanel.Children)
 			{
 			    if (child is ToolBarTray tbt)
@@ -4118,9 +5315,9 @@ namespace PublishedAppTracker
 			rightTabs.Background = tabBg;
 
 			// Compute hover color
-			byte tabR = theme.TabBackground.R;
-			byte tabG = theme.TabBackground.G;
-			byte tabB = theme.TabBackground.B;
+			byte tabR = theme.TabHandleBackground.R;
+			byte tabG = theme.TabHandleBackground.G;
+			byte tabB = theme.TabHandleBackground.B;
 			Color tabHoverColor;
 			if ((tabR + tabG + tabB) / 3 < 128)
 			    tabHoverColor = Color.FromRgb(
@@ -4133,8 +5330,8 @@ namespace PublishedAppTracker
 			        (byte)Math.Max(0, tabG - 25),
 			        (byte)Math.Max(0, tabB - 25));
 
-			string tabBgHex = ThemeSettings.ColorToHex(theme.TabBackground);
-			string tabFgHex = ThemeSettings.ColorToHex(theme.TabForeground);
+			string tabBgHex = ThemeSettings.ColorToHex(theme.TabHandleBackground);
+			string tabFgHex = ThemeSettings.ColorToHex(theme.TabHandleForeground);
 			string tabSelBgHex = ThemeSettings.ColorToHex(theme.TabSelectedBackground);
 			string tabSelFgHex = ThemeSettings.ColorToHex(theme.TabSelectedForeground);
 			string tabHoverHex = ThemeSettings.ColorToHex(tabHoverColor);
@@ -4228,6 +5425,15 @@ namespace PublishedAppTracker
 			editEditorPath.Foreground = new SolidColorBrush(theme.TextBoxForeground);
 			editEditorPath.CaretBrush = new SolidColorBrush(theme.TextBoxForeground);
 			editEditorPath.BorderBrush = new SolidColorBrush(theme.TabBackground);
+
+			// ---- App Settings SyMenu path field ----
+			if (editSyMenuPath != null)
+			{
+				editSyMenuPath.Background = new SolidColorBrush(theme.TextBoxBackground);
+				editSyMenuPath.Foreground = new SolidColorBrush(theme.TextBoxForeground);
+				editSyMenuPath.CaretBrush = new SolidColorBrush(theme.TextBoxForeground);
+				editSyMenuPath.BorderBrush = new SolidColorBrush(theme.TabBackground);
+			}
 
 		    // ---- Source View ----
 		    sourceView.Background = new SolidColorBrush(theme.SourceBackground);
@@ -4436,105 +5642,9 @@ namespace PublishedAppTracker
                                     txt.Foreground = new SolidColorBrush(theme.ToolbarForeground);
                                 else if (navChild is ComboBox cmb)
                                 {
-                                    string cmbBgHex = ThemeSettings.ColorToHex(theme.ComboBoxBackground);
-                                    string cmbFgHex = ThemeSettings.ColorToHex(theme.ComboBoxForeground);
-                                    string cmbBorderHex = ThemeSettings.ColorToHex(theme.ComboBoxBorder);
-                                    string cmbBtnBgHex = ThemeSettings.ColorToHex(theme.ComboBoxButtonBackground);
-                                    string cmbBtnFgHex = ThemeSettings.ColorToHex(theme.ComboBoxButtonForeground);
-
-                                    string comboXaml = @"
-                                    <Style xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
-                                           xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
-                                           TargetType=""ComboBox"">
-                                        <Setter Property=""Foreground"" Value=""" + cmbFgHex + @""" />
-                                        <Setter Property=""Background"" Value=""" + cmbBgHex + @""" />
-                                        <Setter Property=""BorderBrush"" Value=""" + cmbBorderHex + @""" />
-                                        <Setter Property=""ItemContainerStyle"">
-                                            <Setter.Value>
-                                                <Style TargetType=""ComboBoxItem"">
-                                                    <Setter Property=""Foreground"" Value=""" + cmbFgHex + @""" />
-                                                    <Setter Property=""Background"" Value=""" + cmbBgHex + @""" />
-                                                    <Style.Triggers>
-                                                        <Trigger Property=""IsHighlighted"" Value=""True"">
-                                                            <Setter Property=""Background"" Value=""" + cmbBtnBgHex + @""" />
-                                                            <Setter Property=""Foreground"" Value=""" + cmbBtnFgHex + @""" />
-                                                        </Trigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Setter.Value>
-                                        </Setter>
-                                        <Setter Property=""Template"">
-                                            <Setter.Value>
-                                                <ControlTemplate TargetType=""ComboBox"">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width=""*"" />
-                                                            <ColumnDefinition Width=""20"" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <Border x:Name=""Border""
-                                                                Grid.ColumnSpan=""2""
-                                                                Background=""{TemplateBinding Background}""
-                                                                BorderBrush=""{TemplateBinding BorderBrush}""
-                                                                BorderThickness=""1""
-                                                                CornerRadius=""2"" />
-                                                        <ContentPresenter Grid.Column=""0""
-                                                                          Margin=""4,2,0,2""
-                                                                          VerticalAlignment=""Center""
-                                                                          HorizontalAlignment=""Left""
-                                                                          Content=""{TemplateBinding SelectionBoxItem}""
-                                                                          ContentTemplate=""{TemplateBinding SelectionBoxItemTemplate}"" />
-                                                        <Border Grid.Column=""1""
-                                                                Background=""" + cmbBtnBgHex + @"""
-                                                                CornerRadius=""0,2,2,0""
-                                                                BorderThickness=""0"">
-                                                            <TextBlock Text=""&#xE70D;""
-                                                                       FontFamily=""Segoe Fluent Icons""
-                                                                       FontSize=""10""
-                                                                       Foreground=""" + cmbBtnFgHex + @"""
-                                                                       HorizontalAlignment=""Center""
-                                                                       VerticalAlignment=""Center"" />
-                                                        </Border>
-                                                        <ToggleButton Grid.ColumnSpan=""2""
-                                                                      IsChecked=""{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}""
-                                                                      Background=""Transparent""
-                                                                      BorderThickness=""0""
-                                                                      Focusable=""False""
-                                                                      ClickMode=""Press"">
-                                                            <ToggleButton.Template>
-                                                                <ControlTemplate TargetType=""ToggleButton"">
-                                                                    <Border Background=""Transparent"" />
-                                                                </ControlTemplate>
-                                                            </ToggleButton.Template>
-                                                        </ToggleButton>
-                                                        <Popup x:Name=""PART_Popup""
-                                                               IsOpen=""{TemplateBinding IsDropDownOpen}""
-                                                               Placement=""Bottom""
-                                                               AllowsTransparency=""True""
-                                                               Focusable=""False""
-                                                               PopupAnimation=""Slide"">
-                                                            <Border MinWidth=""{TemplateBinding ActualWidth}""
-                                                                    MaxHeight=""{TemplateBinding MaxDropDownHeight}""
-                                                                    Background=""" + cmbBgHex + @"""
-                                                                    BorderBrush=""" + cmbBorderHex + @"""
-                                                                    BorderThickness=""1""
-                                                                    CornerRadius=""2"">
-                                                                <ScrollViewer>
-                                                                    <StackPanel IsItemsHost=""True"" />
-                                                                </ScrollViewer>
-                                                            </Border>
-                                                        </Popup>
-                                                    </Grid>
-                                                </ControlTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Style>";
-
-                                    try
-                                    {
-                                        Style comboStyle = (Style)System.Windows.Markup.XamlReader.Parse(comboXaml);
+                                    Style comboStyle = CreateThemedComboBoxStyle(theme);
+                                    if (comboStyle != null)
                                         cmb.Style = comboStyle;
-                                    }
-                                    catch (Exception) { }
                                 }
                             }
                         }
@@ -4754,96 +5864,12 @@ namespace PublishedAppTracker
 				        tbx.CaretBrush = new SolidColorBrush(currentTheme.TextBoxForeground);
 				        tbx.BorderBrush = bg;
 				    }
-					else if (item is ComboBox cmb)
-					{
-					    string cmbBgHex = ThemeSettings.ColorToHex(currentTheme.ComboBoxBackground);
-					    string cmbFgHex = ThemeSettings.ColorToHex(currentTheme.ComboBoxForeground);
-					    string cmbBorderHex = ThemeSettings.ColorToHex(currentTheme.ComboBoxBorder);
-					    string cmbBtnBgHex = ThemeSettings.ColorToHex(currentTheme.ComboBoxButtonBackground);
-					    string cmbBtnFgHex = ThemeSettings.ColorToHex(currentTheme.ComboBoxButtonForeground);
-
-					    string comboXaml = @"
-					<Style xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
-					       xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
-					       TargetType=""ComboBox"">
-					    <Setter Property=""Foreground"" Value=""" + cmbFgHex + @""" />
-					    <Setter Property=""Background"" Value=""" + cmbBgHex + @""" />
-					    <Setter Property=""BorderBrush"" Value=""" + cmbBorderHex + @""" />
-					    <Setter Property=""Template"">
-					        <Setter.Value>
-					            <ControlTemplate TargetType=""ComboBox"">
-					                <Grid>
-					                    <Grid.ColumnDefinitions>
-					                        <ColumnDefinition Width=""*"" />
-					                        <ColumnDefinition Width=""20"" />
-					                    </Grid.ColumnDefinitions>
-					                    <Border x:Name=""Border""
-					                            Grid.ColumnSpan=""2""
-					                            Background=""{TemplateBinding Background}""
-					                            BorderBrush=""{TemplateBinding BorderBrush}""
-					                            BorderThickness=""1""
-					                            CornerRadius=""2"" />
-					                    <ContentPresenter Grid.Column=""0""
-					                                      Margin=""4,2,0,2""
-					                                      VerticalAlignment=""Center""
-					                                      HorizontalAlignment=""Left""
-					                                      Content=""{TemplateBinding SelectionBoxItem}""
-					                                      ContentTemplate=""{TemplateBinding SelectionBoxItemTemplate}"" />
-					                    <Border Grid.Column=""1""
-					                            Background=""" + cmbBtnBgHex + @"""
-					                            CornerRadius=""0,2,2,0""
-					                            BorderThickness=""0"">
-											<TextBlock Text=""&#xE70D;""
-											           FontFamily=""Segoe Fluent Icons""
-											           FontSize=""10""
-											           Foreground=""" + cmbBtnFgHex + @"""
-											           HorizontalAlignment=""Center""
-											           VerticalAlignment=""Center"" />
-					                    </Border>
-					                    <ToggleButton Grid.ColumnSpan=""2""
-					                                  IsChecked=""{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}""
-					                                  Background=""Transparent""
-					                                  BorderThickness=""0""
-					                                  Focusable=""False""
-					                                  ClickMode=""Press"">
-					                        <ToggleButton.Template>
-					                            <ControlTemplate TargetType=""ToggleButton"">
-					                                <Border Background=""Transparent"" />
-					                            </ControlTemplate>
-					                        </ToggleButton.Template>
-					                    </ToggleButton>
-					                    <Popup x:Name=""PART_Popup""
-					                           IsOpen=""{TemplateBinding IsDropDownOpen}""
-					                           Placement=""Bottom""
-					                           AllowsTransparency=""True""
-					                           Focusable=""False""
-					                           PopupAnimation=""Slide"">
-					                        <Border MinWidth=""{TemplateBinding ActualWidth}""
-					                                MaxHeight=""{TemplateBinding MaxDropDownHeight}""
-					                                Background=""" + cmbBgHex + @"""
-					                                BorderBrush=""" + cmbBorderHex + @"""
-					                                BorderThickness=""1""
-					                                CornerRadius=""2"">
-					                            <ScrollViewer>
-					                                <StackPanel IsItemsHost=""True"" />
-					                            </ScrollViewer>
-					                        </Border>
-					                    </Popup>
-					                </Grid>
-					            </ControlTemplate>
-					        </Setter.Value>
-					    </Setter>
-					</Style>";
-
-					                    try
-					                    {
-					                        Style comboStyle = (Style)System.Windows.Markup.XamlReader.Parse(comboXaml);
-					                        cmb.Style = comboStyle;
-					                    }
-					                    catch (Exception)
-					                    {
-					                    }
-					}
+                    else if (item is ComboBox cmb)
+                    {
+                        Style comboStyle = CreateThemedComboBoxStyle(currentTheme);
+                        if (comboStyle != null)
+                            cmb.Style = comboStyle;
+                    }
 				}
 
 		        // Override the ToolBar template — preserve overflow button
@@ -4930,6 +5956,111 @@ namespace PublishedAppTracker
 		        }
 		    }
 		}
+
+        private Style CreateThemedComboBoxStyle(ThemeSettings theme)
+        {
+            string cmbBgHex = ThemeSettings.ColorToHex(theme.ComboBoxBackground);
+            string cmbFgHex = ThemeSettings.ColorToHex(theme.ComboBoxForeground);
+            string cmbBorderHex = ThemeSettings.ColorToHex(theme.ComboBoxBorder);
+            string cmbBtnBgHex = ThemeSettings.ColorToHex(theme.ComboBoxButtonBackground);
+            string cmbBtnFgHex = ThemeSettings.ColorToHex(theme.ComboBoxButtonForeground);
+
+            string comboXaml = @"
+            <Style xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+                   xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+                   TargetType=""ComboBox"">
+                <Setter Property=""Foreground"" Value=""" + cmbFgHex + @""" />
+                <Setter Property=""Background"" Value=""" + cmbBgHex + @""" />
+                <Setter Property=""BorderBrush"" Value=""" + cmbBorderHex + @""" />
+                <Setter Property=""ItemContainerStyle"">
+                    <Setter.Value>
+                        <Style TargetType=""ComboBoxItem"">
+                            <Setter Property=""Foreground"" Value=""" + cmbFgHex + @""" />
+                            <Setter Property=""Background"" Value=""" + cmbBgHex + @""" />
+                            <Style.Triggers>
+                                <Trigger Property=""IsHighlighted"" Value=""True"">
+                                    <Setter Property=""Background"" Value=""" + cmbBtnBgHex + @""" />
+                                    <Setter Property=""Foreground"" Value=""" + cmbBtnFgHex + @""" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Setter.Value>
+                </Setter>
+                <Setter Property=""Template"">
+                    <Setter.Value>
+                        <ControlTemplate TargetType=""ComboBox"">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width=""*"" />
+                                    <ColumnDefinition Width=""20"" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name=""Border""
+                                        Grid.ColumnSpan=""2""
+                                        Background=""{TemplateBinding Background}""
+                                        BorderBrush=""{TemplateBinding BorderBrush}""
+                                        BorderThickness=""1""
+                                        CornerRadius=""2"" />
+                                <ContentPresenter Grid.Column=""0""
+                                                  Margin=""4,2,0,2""
+                                                  VerticalAlignment=""Center""
+                                                  HorizontalAlignment=""Left""
+                                                  Content=""{TemplateBinding SelectionBoxItem}""
+                                                  ContentTemplate=""{TemplateBinding SelectionBoxItemTemplate}"" />
+                                <Border Grid.Column=""1""
+                                        Background=""" + cmbBtnBgHex + @"""
+                                        CornerRadius=""0,2,2,0""
+                                        BorderThickness=""0"">
+                                    <TextBlock Text=""&#xE70D;""
+                                               FontFamily=""Segoe Fluent Icons""
+                                               FontSize=""10""
+                                               Foreground=""" + cmbBtnFgHex + @"""
+                                               HorizontalAlignment=""Center""
+                                               VerticalAlignment=""Center"" />
+                                </Border>
+                                <ToggleButton Grid.ColumnSpan=""2""
+                                              IsChecked=""{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}""
+                                              Background=""Transparent""
+                                              BorderThickness=""0""
+                                              Focusable=""False""
+                                              ClickMode=""Press"">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType=""ToggleButton"">
+                                            <Border Background=""Transparent"" />
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                                <Popup x:Name=""PART_Popup""
+                                       IsOpen=""{TemplateBinding IsDropDownOpen}""
+                                       Placement=""Bottom""
+                                       AllowsTransparency=""True""
+                                       Focusable=""False""
+                                       PopupAnimation=""Slide"">
+                                    <Border MinWidth=""{TemplateBinding ActualWidth}""
+                                            MaxHeight=""{TemplateBinding MaxDropDownHeight}""
+                                            Background=""" + cmbBgHex + @"""
+                                            BorderBrush=""" + cmbBorderHex + @"""
+                                            BorderThickness=""1""
+                                            CornerRadius=""2"">
+                                        <ScrollViewer>
+                                            <StackPanel IsItemsHost=""True"" />
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>";
+
+            try
+            {
+                return (Style)System.Windows.Markup.XamlReader.Parse(comboXaml);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
 
 		private ControlTemplate BuildMenuItemTemplate(SolidColorBrush bg, SolidColorBrush fg, SolidColorBrush hoverBg)
 		{
@@ -5425,7 +6556,7 @@ namespace PublishedAppTracker
         private void MainWindow_Closing(object sender,
             System.ComponentModel.CancelEventArgs e)
         {
-            if (isDirty)
+            if (isCategoryDirty)
             {
                 MessageBoxResult result = MessageBox.Show(
                     "You have unsaved changes.\n\nDo you want to save before closing?",
@@ -5435,7 +6566,7 @@ namespace PublishedAppTracker
 
                 if (result == MessageBoxResult.Yes)
                 {
-                    Save_Click(sender, new RoutedEventArgs());
+                    SaveAll_Click(sender, new RoutedEventArgs());
                 }
                 else if (result == MessageBoxResult.Cancel)
                 {
@@ -5499,60 +6630,119 @@ namespace PublishedAppTracker
         // Input Dialog
         // ============================
 
-        private string ShowInputDialog(string title, string prompt)
-        {
-            Window dialog = new Window();
-            dialog.Title = title;
-            dialog.Width = 350;
-            dialog.Height = 160;
-            dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            dialog.Owner = this;
-            dialog.ResizeMode = ResizeMode.NoResize;
+		private string ShowInputDialog(string title, string prompt)
+		{
+		    Window dialog = new Window();
+		    dialog.Title = title;
+		    dialog.Width = 350;
+		    dialog.Height = 160;
+		    dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+		    dialog.Owner = this;
+		    dialog.ResizeMode = ResizeMode.NoResize;
 
-            StackPanel panel = new StackPanel();
-            panel.Margin = new Thickness(12);
+		    // Apply theme to window
+		    dialog.Background = new SolidColorBrush(currentTheme.WindowBackground);
 
-            TextBlock label = new TextBlock();
-            label.Text = prompt;
-            label.Margin = new Thickness(0, 0, 0, 8);
-            panel.Children.Add(label);
+		    StackPanel panel = new StackPanel();
+		    panel.Margin = new Thickness(12);
 
-            TextBox input = new TextBox();
-            input.Margin = new Thickness(0, 0, 0, 12);
-            panel.Children.Add(input);
+		    TextBlock label = new TextBlock();
+		    label.Text = prompt;
+		    label.Foreground = new SolidColorBrush(currentTheme.WindowForeground);
+		    label.Margin = new Thickness(0, 0, 0, 8);
+		    panel.Children.Add(label);
 
-            StackPanel buttons = new StackPanel();
-            buttons.Orientation = Orientation.Horizontal;
-            buttons.HorizontalAlignment = HorizontalAlignment.Right;
+		    TextBox input = new TextBox();
+		    input.Background = new SolidColorBrush(currentTheme.TextBoxBackground);
+		    input.Foreground = new SolidColorBrush(currentTheme.TextBoxForeground);
+		    input.CaretBrush = new SolidColorBrush(currentTheme.TextBoxForeground);
+		    input.BorderBrush = new SolidColorBrush(currentTheme.CheckBoxBorder);
+		    input.Margin = new Thickness(0, 0, 0, 12);
+		    panel.Children.Add(input);
 
-            Button btnOK = new Button();
-            btnOK.Content = "OK";
-            btnOK.Width = 70;
-            btnOK.Padding = new Thickness(4);
-            btnOK.Margin = new Thickness(0, 0, 8, 0);
-            btnOK.IsDefault = true;
-            btnOK.Click += (s, ev) => { dialog.DialogResult = true; };
-            buttons.Children.Add(btnOK);
+		    // Compute button hover color (same logic as MainWindow)
+		    byte btnR = currentTheme.ButtonBackground.R;
+		    byte btnG = currentTheme.ButtonBackground.G;
+		    byte btnB = currentTheme.ButtonBackground.B;
+		    Color btnHoverColor;
+		    if ((btnR + btnG + btnB) / 3 < 128)
+		        btnHoverColor = Color.FromRgb(
+		            (byte)Math.Min(255, btnR + 40),
+		            (byte)Math.Min(255, btnG + 40),
+		            (byte)Math.Min(255, btnB + 40));
+		    else
+		        btnHoverColor = Color.FromRgb(
+		            (byte)Math.Max(0, btnR - 40),
+		            (byte)Math.Max(0, btnG - 40),
+		            (byte)Math.Max(0, btnB - 40));
 
-            Button btnCancel = new Button();
-            btnCancel.Content = "Cancel";
-            btnCancel.Width = 70;
-            btnCancel.Padding = new Thickness(4);
-            btnCancel.IsCancel = true;
-            buttons.Children.Add(btnCancel);
+		    SolidColorBrush btnBg = new SolidColorBrush(currentTheme.ButtonBackground);
+		    SolidColorBrush btnFg = new SolidColorBrush(currentTheme.ButtonForeground);
+		    SolidColorBrush btnHoverBrush = new SolidColorBrush(btnHoverColor);
 
-            panel.Children.Add(buttons);
-            dialog.Content = panel;
+		    // Build themed button style with hover
+		    Style buttonStyle = new Style(typeof(Button));
+		    buttonStyle.Setters.Add(new Setter(Button.BackgroundProperty, btnBg));
+		    buttonStyle.Setters.Add(new Setter(Button.ForegroundProperty, btnFg));
+		    buttonStyle.Setters.Add(new Setter(Button.BorderBrushProperty, btnBg));
+		    buttonStyle.Setters.Add(new Setter(Button.PaddingProperty, new Thickness(8, 4, 8, 4)));
 
-            dialog.Loaded += (s, ev) => { input.Focus(); };
+		    ControlTemplate btnTemplate = new ControlTemplate(typeof(Button));
+		    FrameworkElementFactory border = new FrameworkElementFactory(typeof(Border));
+		    border.Name = "border";
+		    border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+		    border.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+		    border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+		    border.SetValue(Border.CornerRadiusProperty, new CornerRadius(2));
+		    border.SetValue(Border.PaddingProperty, new Thickness(8, 4, 8, 4));
 
-            if (dialog.ShowDialog() == true)
-            {
-                return input.Text.Trim();
-            }
+		    FrameworkElementFactory cp = new FrameworkElementFactory(typeof(ContentPresenter));
+		    cp.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+		    cp.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+		    border.AppendChild(cp);
+		    btnTemplate.VisualTree = border;
 
-            return null;
-        }
+		    Trigger hoverTrigger = new Trigger();
+		    hoverTrigger.Property = UIElement.IsMouseOverProperty;
+		    hoverTrigger.Value = true;
+		    hoverTrigger.Setters.Add(new Setter(Button.BackgroundProperty, btnHoverBrush));
+		    hoverTrigger.Setters.Add(new Setter(Button.BorderBrushProperty, btnHoverBrush));
+		    btnTemplate.Triggers.Add(hoverTrigger);
+
+		    buttonStyle.Setters.Add(new Setter(Button.TemplateProperty, btnTemplate));
+
+		    StackPanel buttons = new StackPanel();
+		    buttons.Orientation = Orientation.Horizontal;
+		    buttons.HorizontalAlignment = HorizontalAlignment.Right;
+
+		    Button btnOK = new Button();
+		    btnOK.Content = "OK";
+		    btnOK.Width = 70;
+		    btnOK.IsDefault = true;
+		    btnOK.Style = buttonStyle;
+		    btnOK.Margin = new Thickness(0, 0, 8, 0);
+		    btnOK.Click += (s, ev) => { dialog.DialogResult = true; };
+		    buttons.Children.Add(btnOK);
+
+		    Button btnCancel = new Button();
+		    btnCancel.Content = "Cancel";
+		    btnCancel.Width = 70;
+		    btnCancel.IsCancel = true;
+		    btnCancel.Style = buttonStyle;
+		    buttons.Children.Add(btnCancel);
+
+		    panel.Children.Add(buttons);
+		    dialog.Content = panel;
+
+		    dialog.Loaded += (s, ev) => { input.Focus(); };
+
+		    if (dialog.ShowDialog() == true)
+		    {
+		        return input.Text.Trim();
+		    }
+
+		    return null;
+		}
 
         // ============================
         // Menu Handlers
@@ -5589,8 +6779,7 @@ namespace PublishedAppTracker
 
         private void MenuNewTrack_Click(object sender, RoutedEventArgs e)
         {
-            TreeViewItem selectedCat = categoryTree.SelectedItem as TreeViewItem;
-            if (selectedCat == null)
+            if (string.IsNullOrEmpty(currentCategoryPath))
             {
                 MessageBox.Show("Please select a category first.", "PAT v7",
                     MessageBoxButton.OK, MessageBoxImage.Information);
@@ -5706,6 +6895,513 @@ namespace PublishedAppTracker
             }
         }
 
+        private void SaveAll_Click(object sender, RoutedEventArgs e)
+        {
+            if (currentItems == null || currentItems.Count == 0)
+            {
+                statusFile.Text = "No tracks to save";
+                return;
+            }
+
+            // First, save the currently selected track's fields if dirty
+            if (isDirty && currentTrackItem != null)
+            {
+                SaveCurrentTrackFields();
+            }
+
+            int savedCount = 0;
+            int updatedCount = 0;
+
+            foreach (TrackItem item in currentItems)
+            {
+                // Update version from latest version if available and different
+                if (!string.IsNullOrEmpty(item.LatestVersion) &&
+                    item.LatestVersion != item.Version &&
+                    item.TrackStatus != "error")
+                {
+                    item.Version = item.LatestVersion;
+                    if (item.TrackStatus == "changed")
+                        item.TrackStatus = "unchanged";
+                    updatedCount++;
+                }
+
+                savedCount++;
+            }
+
+            // Check if this is an SPS category — save as XML
+            bool isSpsCategory = false;
+            if (!string.IsNullOrEmpty(currentCategoryPath))
+            {
+                if (Directory.GetFiles(currentCategoryPath, "*.xml").Length > 0)
+                    isSpsCategory = true;
+                else if (currentItems.Count > 0 && string.IsNullOrEmpty(currentItems[0].FilePath))
+                    isSpsCategory = true;
+            }
+
+            if (isSpsCategory)
+            {
+                try
+                {
+                    string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
+                    string xmlPath;
+                    string publisherFilter = txtPublisherFilter.Text.Trim();
+                    string suitePath = "";
+                    List<string> savedSuites = windowSettings.SelectedSuites;
+
+                    if (xmlFiles.Length > 0)
+                    {
+                        xmlPath = xmlFiles[0];
+                        string existingPf, existingSp;
+                        List<string> existingSuites;
+                        TrackItem.LoadSpsListFromFile(xmlPath, out existingPf, out existingSp, out existingSuites);
+                        if (!string.IsNullOrEmpty(existingSp))
+                            suitePath = existingSp;
+                        if (existingSuites.Count > 0)
+                            savedSuites = existingSuites;
+                    }
+                    else
+                    {
+                        string folderName = Path.GetFileName(currentCategoryPath);
+                        xmlPath = Path.Combine(currentCategoryPath, folderName + ".xml");
+                    }
+
+                    TrackItem.SaveSpsListToFile(xmlPath, currentItems.ToList(), publisherFilter, suitePath, savedSuites);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error saving SPS category: " + ex.Message,
+                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+            }
+            else
+            {
+                foreach (TrackItem item in currentItems)
+                {
+                    item.SaveToFile();
+                }
+            }
+
+            ClearAllDirty();
+
+            // Refresh the UI fields if the current item was updated
+            if (currentTrackItem != null)
+            {
+                isLoadingFields = true;
+                editVersion.Text = currentTrackItem.Version;
+                UpdateVersionDisplay();
+                isLoadingFields = false;
+            }
+
+            // Refresh the list to show updated versions
+            suppressAutoDownload = true;
+            int selectedIndex = itemList.SelectedIndex;
+            itemList.ItemsSource = null;
+            itemList.ItemsSource = currentItems;
+            if (selectedIndex >= 0)
+                itemList.SelectedIndex = selectedIndex;
+            suppressAutoDownload = false;
+
+            statusFile.Text = "Save All: " + savedCount + " tracks saved, " +
+                updatedCount + " versions updated";
+        }
+
+        private void SelectSuites_Click(object sender, RoutedEventArgs e)
+        {
+            string spsSuiteRoot = windowSettings.SpsSuiteRootPath;
+
+            if (string.IsNullOrEmpty(spsSuiteRoot) || !Directory.Exists(spsSuiteRoot))
+            {
+                MessageBox.Show(
+                    "Please set the SPSSuite path first by clicking ReBuild.",
+                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            List<SuiteInfo> availableSuites = SpsParser.DetectSuites(spsSuiteRoot);
+
+            if (availableSuites.Count == 0)
+            {
+                MessageBox.Show(
+                    "No suites found in:\n" + spsSuiteRoot +
+                    "\n\nMake sure suite folders contain a _Cache subfolder.",
+                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            SuiteSelectionWindow selWin = new SuiteSelectionWindow(availableSuites, windowSettings.SelectedSuites, currentTheme);
+            selWin.Owner = this;
+
+            if (selWin.ShowDialog() == true)
+            {
+                windowSettings.SelectedSuites = selWin.SelectedSuiteNames;
+                windowSettings.Save(windowSettingsPath);
+                statusFile.Text = "Selected suites: " + string.Join(", ", windowSettings.SelectedSuites);
+            }
+        }
+
+        private void ReBuild_Click(object sender, RoutedEventArgs e)
+        {
+        	txtSearchCount.Text = "";
+            // Step 1: Get the SPSSuite root path (saved in settings or ask user)
+            string spsSuiteRoot = windowSettings.SpsSuiteRootPath;
+
+            if (string.IsNullOrEmpty(spsSuiteRoot) || !Directory.Exists(spsSuiteRoot))
+            {
+                MessageBox.Show(
+                    "Please select the SPSSuite folder.\n\n" +
+                    "This is typically located at:\n" +
+                    "SyMenu\\ProgramFiles\\SPSSuite\n\n" +
+                    "This will be saved for future use.",
+                    "PAT v7 — Set SPSSuite Path",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+
+                var folderDialog = new System.Windows.Forms.FolderBrowserDialog();
+                folderDialog.Description = "Select the SPSSuite folder (contains SyMenuSuite, etc.)";
+                folderDialog.ShowNewFolderButton = false;
+
+                if (folderDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                {
+                    spsSuiteRoot = folderDialog.SelectedPath;
+
+                    // If user selected a suite subfolder or _Cache, go up
+                    string selectedName = Path.GetFileName(spsSuiteRoot);
+                    if (selectedName.Equals("_Cache", StringComparison.OrdinalIgnoreCase))
+                        spsSuiteRoot = Path.GetDirectoryName(Path.GetDirectoryName(spsSuiteRoot));
+                    else if (selectedName.Equals("SyMenuSuite", StringComparison.OrdinalIgnoreCase) ||
+                             selectedName.Equals("NirSoftSuite", StringComparison.OrdinalIgnoreCase))
+                        spsSuiteRoot = Path.GetDirectoryName(spsSuiteRoot);
+
+                    // Save to settings
+                    windowSettings.SpsSuiteRootPath = spsSuiteRoot;
+                    windowSettings.Save(windowSettingsPath);
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            // Step 2: Get selected suites
+            List<SuiteInfo> allSuites = SpsParser.DetectSuites(spsSuiteRoot);
+            List<SuiteInfo> selectedSuites = new List<SuiteInfo>();
+
+            if (windowSettings.SelectedSuites.Count == 0)
+            {
+                // No suites selected yet — ask user to select
+                SuiteSelectionWindow selWin = new SuiteSelectionWindow(allSuites, windowSettings.SelectedSuites, currentTheme);
+                selWin.Owner = this;
+                if (selWin.ShowDialog() == true)
+                {
+                    windowSettings.SelectedSuites = selWin.SelectedSuiteNames;
+                    windowSettings.Save(windowSettingsPath);
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            // Build list of selected SuiteInfo objects
+            foreach (SuiteInfo suite in allSuites)
+            {
+                if (windowSettings.SelectedSuites.Contains(suite.Name))
+                    selectedSuites.Add(suite);
+            }
+
+            if (selectedSuites.Count == 0)
+            {
+                MessageBox.Show(
+                    "No suites selected.\n\nUse the Select Suites button to choose suites first.",
+                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Validate all selected suites exist
+            foreach (SuiteInfo suite in selectedSuites)
+            {
+                string cachePath = Path.Combine(suite.FullPath, "_Cache");
+                if (!Directory.Exists(cachePath))
+                {
+                    MessageBox.Show(
+                        "No _Cache folder found in:\n" + suite.FullPath +
+                        "\n\nSuite '" + suite.Name + "' will be skipped.",
+                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+
+            // Step 3: Check selected category
+            TreeViewItem selectedNode = categoryTree.SelectedItem as TreeViewItem;
+            string targetFolder = null;
+            string targetName = null;
+
+            if (selectedNode != null)
+            {
+                targetFolder = (string)selectedNode.Tag;
+                targetName = Path.GetFileName(targetFolder);
+
+                // Check what's in the category
+                bool hasTrackFiles = Directory.GetFiles(targetFolder, "*.track").Length > 0;
+
+                if (hasTrackFiles)
+                {
+                    // Category has .track files — can't put SPS data here
+                    MessageBoxResult choice = MessageBox.Show(
+                        "Category '" + targetName + "' contains .track files.\n\n" +
+                        "SPS data must go in an empty or existing SPS category.\n\n" +
+                        "Create a new category for this SPS data?",
+                        "PAT v7", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+                    if (choice == MessageBoxResult.Yes)
+                    {
+                        targetFolder = null; // fall through to create new
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+            }
+
+            // Step 4: If no suitable category, create one
+            if (string.IsNullOrEmpty(targetFolder))
+            {
+                string defaultName = string.Join("+", windowSettings.SelectedSuites);
+                string newName = ShowInputDialog("New SPS Category",
+                    "Enter category name for SPS data:\n(default: " + defaultName + ")");
+
+                if (string.IsNullOrWhiteSpace(newName))
+                    return;
+
+                foreach (char c in Path.GetInvalidFileNameChars())
+                    newName = newName.Replace(c.ToString(), "");
+
+                if (string.IsNullOrWhiteSpace(newName))
+                {
+                    MessageBox.Show("Invalid folder name.", "PAT v7",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                targetFolder = Path.Combine(categoriesPath, newName);
+                targetName = newName;
+
+                if (!Directory.Exists(targetFolder))
+                    Directory.CreateDirectory(targetFolder);
+            }
+
+            // Step 5: Publisher filter
+            string publisherFilter = txtPublisherFilter.Text.Trim();
+
+            // Confirm
+            string suiteNames = string.Join(", ", windowSettings.SelectedSuites);
+            string confirmMsg = "Rebuild SPS category '" + targetName + "'?";
+            confirmMsg += "\n\nSuites: " + suiteNames;
+            if (!string.IsNullOrEmpty(publisherFilter))
+                confirmMsg += "\nPublisher filter: " + publisherFilter;
+            else
+                confirmMsg += "\nNo publisher filter — all SPS entries will be included.";
+
+            if (MessageBox.Show(confirmMsg, "ReBuild from SPS",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+
+            // Step 6: Extract and parse from all selected suites
+            statusFile.Text = "Processing suites...";
+            statusProgress.Value = 10;
+
+            try
+            {
+                List<TrackItem> allSpsItems = new List<TrackItem>();
+                List<string> suitesToCleanup = new List<string>();
+
+                int suiteIndex = 0;
+                foreach (SuiteInfo suite in selectedSuites)
+                {
+                    suiteIndex++;
+                    double progressBase = 10 + (40.0 * suiteIndex / selectedSuites.Count);
+                    statusFile.Text = "Processing suite: " + suite.Name + " (" + suiteIndex + "/" + selectedSuites.Count + ")...";
+                    statusProgress.Value = progressBase;
+
+                    string cachePath = Path.Combine(suite.FullPath, "_Cache");
+                    if (!Directory.Exists(cachePath))
+                        continue;
+
+                    string parseFolder;
+
+                    if (suite.RequiresExtraction)
+                    {
+                        // Default suite — extract zips from _Cache into _TmpPAT
+                        statusFile.Text = "Extracting " + suite.Name + "...";
+                        parseFolder = SpsParser.ExtractSpsCache(suite.FullPath);
+                        if (string.IsNullOrEmpty(parseFolder))
+                            continue;
+                        suitesToCleanup.Add(suite.FullPath);
+                    }
+                    else
+                    {
+                        // User suite — read .sps files directly from _Cache
+                        parseFolder = cachePath;
+                    }
+
+                    statusFile.Text = "Parsing " + suite.Name + "...";
+                    List<TrackItem> suiteItems = SpsParser.ParseSpsFiles(parseFolder, publisherFilter);
+
+                    // Set suite name on all items from this suite
+                    foreach (TrackItem item in suiteItems)
+                    {
+                        item.SuiteName = suite.Name;
+                    }
+
+                    allSpsItems.AddRange(suiteItems);
+                }
+
+                statusProgress.Value = 50;
+                statusFile.Text = "Processing " + allSpsItems.Count + " SPS entries from " + selectedSuites.Count + " suite(s)...";
+
+                // Step 7: Merge with existing SPS data if category already has an XML
+                string[] existingXml = Directory.GetFiles(targetFolder, "*.xml");
+                if (existingXml.Length > 0)
+                {
+                    string existPf, existSp;
+                    List<string> existSuites;
+                    List<TrackItem> existingItems = TrackItem.LoadSpsListFromFile(
+                        existingXml[0], out existPf, out existSp, out existSuites);
+
+                    // Build lookup of existing items by name+suite for preserving user data
+                    Dictionary<string, TrackItem> existingByKey = new Dictionary<string, TrackItem>(
+                        StringComparer.OrdinalIgnoreCase);
+                    foreach (TrackItem existing in existingItems)
+                    {
+                        if (!string.IsNullOrEmpty(existing.TrackName))
+                        {
+                            string key = existing.TrackName + "|" + (existing.SuiteName ?? "");
+                            if (!existingByKey.ContainsKey(key))
+                            {
+                                existingByKey[key] = existing;
+                            }
+                        }
+                    }
+
+                    // Start from the filtered allSpsItems list (not existing),
+                    // but preserve user-defined tracking data from existing items
+                    List<TrackItem> merged = new List<TrackItem>();
+
+                    foreach (TrackItem spsItem in allSpsItems)
+                    {
+                        string key = spsItem.TrackName + "|" + (spsItem.SuiteName ?? "");
+                        if (existingByKey.ContainsKey(key))
+                        {
+                            // Use existing item but update SPS metadata
+                            TrackItem existing = existingByKey[key];
+                            existing.Version = spsItem.Version;
+                            existing.ReleaseDate = spsItem.ReleaseDate;
+                            existing.DownloadURL = spsItem.DownloadURL;
+                            existing.DownloadSizeKb = spsItem.DownloadSizeKb;
+                            existing.PublisherName = spsItem.PublisherName;
+                            existing.SuiteName = spsItem.SuiteName;
+                            existing.SpsFileName = spsItem.SpsFileName;
+                            merged.Add(existing);
+                        }
+                        else
+                        {
+                            merged.Add(spsItem);
+                        }
+                    }
+
+                    allSpsItems = merged;
+                }
+
+                // Step 8: Populate the in-memory list (do NOT auto-save)
+                currentItems.Clear();
+                foreach (TrackItem item in allSpsItems)
+                {
+                    currentItems.Add(item);
+                }
+
+                // Switch to the target category
+                currentCategoryPath = targetFolder;
+
+                // Clean up temp files for default suites that were extracted
+                foreach (string suitePath in suitesToCleanup)
+                {
+                    SpsParser.CleanupTmpFolder(suitePath);
+                }
+
+                statusProgress.Value = 100;
+
+                // Refresh tree without triggering LoadTrackFiles
+                suppressCategoryReload = true;
+                RefreshCategoryTree();
+                suppressCategoryReload = false;
+
+                // Re-populate the list from memory
+                suppressAutoDownload = true;
+                itemList.ItemsSource = null;
+                itemList.ItemsSource = currentItems;
+                if (currentItems.Count > 0)
+                    itemList.SelectedIndex = 0;
+                suppressAutoDownload = false;
+
+                // Always mark dirty after rebuild so new metadata gets saved
+                bool rebuildIsDirty = true;
+
+                isLoadingFields = false;
+                if (rebuildIsDirty)
+                {
+                    isDirty = true;
+                    UpdateSaveButtonStates();
+                }
+                else
+                {
+                    ClearDirty();
+                }
+
+                // Update the tree label to show the count from memory
+                foreach (TreeViewItem treeItem in categoryTree.Items)
+                {
+                    if ((string)treeItem.Tag == targetFolder)
+                    {
+                        StackPanel panel = treeItem.Header as StackPanel;
+                        if (panel != null)
+                        {
+                            foreach (var child in panel.Children)
+                            {
+                                TextBlock tb = child as TextBlock;
+                                if (tb != null)
+                                {
+                                    tb.Text = targetName + " (" + currentItems.Count + ") [SPS]";
+                                    break;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("ReBuild error: " + ex.Message, "PAT v7",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                statusFile.Text = "ReBuild failed.";
+            }
+            finally
+            {
+                statusProgress.Value = 0;
+                statusFile.Text = "ReBuild done: " + currentItems.Count + " entries from " + selectedSuites.Count + " suite(s). Save to keep changes.";
+                txtSearchCount.Text = currentItems.Count + " items";
+            }
+        }
+
+        private void txtPublisherFilter_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.Enter)
+            {
+                ReBuild_Click(sender, new RoutedEventArgs());
+            }
+        }
+
         private async void InstallUBlock_Click(object sender, RoutedEventArgs e)
         {
             string ublockFolder = Path.Combine(extensionsPath, "uBlock0.chromium");
@@ -5785,7 +7481,7 @@ namespace PublishedAppTracker
                 }
 
                 // Switch to WebView tab so WebView2 can initialise
-                rightTabs.SelectedIndex = 2;
+                rightTabs.SelectedIndex = 1;
                 await System.Threading.Tasks.Task.Delay(100);
 
                 // Install into WebView2 — remove old version first
@@ -5897,6 +7593,15 @@ namespace PublishedAppTracker
                     "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
+		private void AddSelectAllOnRightClick(TextBox textBox)
+		{
+		    textBox.PreviewMouseRightButtonDown += (s, e) =>
+		    {
+		        textBox.SelectAll();
+		        textBox.Focus();
+		    };
+		}
 
         private void About_Click(object sender, RoutedEventArgs e)
         {
@@ -6095,8 +7800,8 @@ namespace PublishedAppTracker
         }
 
         /// <summary>
-        /// Downloads page source using WebView2 as a fallback when HttpClient fails (e.g. Cloudflare).
-        /// WebView2 is a real browser and can pass JavaScript challenges.
+        /// Downloads page source using WebView2 as a fallback when HttpClient fails (e.g. Cloudflare, sgcaptcha).
+        /// WebView2 is a real browser and can pass JavaScript challenges and meta-refresh redirects.
         /// </summary>
         private async System.Threading.Tasks.Task<string> DownloadViaWebView(string url)
         {
@@ -6105,44 +7810,70 @@ namespace PublishedAppTracker
                 await webView.EnsureCoreWebView2Async();
 
                 var tcs = new System.Threading.Tasks.TaskCompletionSource<string>();
-                int retries = 0;
-                const int maxRetries = 3;
+                int navigationCount = 0;
+                const int maxNavigations = 10;
 
                 EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs> handler = null;
                 handler = async (s, e) =>
                 {
                     try
                     {
-                        // Wait a moment for any Cloudflare challenge to resolve
+                        navigationCount++;
+
+                        // Wait for page to settle
                         await System.Threading.Tasks.Task.Delay(2000);
 
-                        // Check if we're still on a Cloudflare challenge page
+                        // Check document title and source for challenges
                         string title = webView.CoreWebView2.DocumentTitle ?? "";
                         string currentUrl = webView.CoreWebView2.Source ?? "";
 
-                        if ((title.Contains("Just a moment") || title.Contains("Checking your browser") ||
-                             title.Contains("Attention Required")) && retries < maxRetries)
-                        {
-                            retries++;
-                            statusFile.Text = "Cloudflare challenge detected, waiting... (attempt " +
-                                retries + "/" + maxRetries + ")";
-                            await System.Threading.Tasks.Task.Delay(3000);
-                            return; // Wait for next NavigationCompleted
-                        }
+                        // Cloudflare challenge detection
+                        bool isCloudflare = title.Contains("Just a moment") ||
+                                            title.Contains("Checking your browser") ||
+                                            title.Contains("Attention Required");
 
-                        // Get the page source via JavaScript
+                        // Get the page source
                         string source = await webView.CoreWebView2.ExecuteScriptAsync(
                             "document.documentElement.outerHTML");
 
                         if (!string.IsNullOrEmpty(source) && source != "null")
                         {
-                            // The result comes back as a JSON string, so unescape it
                             source = System.Text.Json.JsonSerializer.Deserialize<string>(source);
+                        }
+
+                        // Check if this is still a challenge/captcha page
+                        bool isChallenge = isCloudflare || IsChallengePage(source);
+
+                        if (isChallenge && navigationCount < maxNavigations)
+                        {
+                            // Still on a challenge page — wait longer and let the
+                            // meta-refresh or JS redirect complete; don't unhook,
+                            // the next NavigationCompleted will fire after redirect
+                            statusFile.Text = "Challenge redirect detected, waiting... (nav " +
+                                navigationCount + ")";
+                            await System.Threading.Tasks.Task.Delay(3000);
+
+                            // If no new navigation fires (meta-refresh might not trigger one),
+                            // re-check the source after the extra wait
+                            string retrySource = await webView.CoreWebView2.ExecuteScriptAsync(
+                                "document.documentElement.outerHTML");
+                            if (!string.IsNullOrEmpty(retrySource) && retrySource != "null")
+                            {
+                                retrySource = System.Text.Json.JsonSerializer.Deserialize<string>(retrySource);
+                            }
+
+                            if (!IsChallengePage(retrySource) && retrySource.Length > 512)
+                            {
+                                webView.CoreWebView2.NavigationCompleted -= handler;
+                                tcs.TrySetResult(retrySource);
+                            }
+                            // Otherwise keep waiting for the next NavigationCompleted
+                            return;
                         }
 
                         webView.CoreWebView2.NavigationCompleted -= handler;
 
-                        if (!string.IsNullOrEmpty(source) && source.Length > 100)
+                        if (!string.IsNullOrEmpty(source) && source.Length > 100 && !IsChallengePage(source))
                         {
                             tcs.TrySetResult(source);
                         }
@@ -6161,13 +7892,28 @@ namespace PublishedAppTracker
                 webView.CoreWebView2.NavigationCompleted += handler;
                 webView.CoreWebView2.Navigate(url);
 
-                // Timeout after 30 seconds
-                var timeoutTask = System.Threading.Tasks.Task.Delay(30000);
+                // Timeout after 45 seconds (longer to allow for challenge redirects)
+                var timeoutTask = System.Threading.Tasks.Task.Delay(45000);
                 var completedTask = await System.Threading.Tasks.Task.WhenAny(tcs.Task, timeoutTask);
 
                 if (completedTask == timeoutTask)
                 {
                     webView.CoreWebView2.NavigationCompleted -= handler;
+
+                    // Last-ditch: grab whatever is in the WebView now
+                    try
+                    {
+                        string lastSource = await webView.CoreWebView2.ExecuteScriptAsync(
+                            "document.documentElement.outerHTML");
+                        if (!string.IsNullOrEmpty(lastSource) && lastSource != "null")
+                        {
+                            lastSource = System.Text.Json.JsonSerializer.Deserialize<string>(lastSource);
+                            if (!IsChallengePage(lastSource) && lastSource.Length > 100)
+                                return lastSource;
+                        }
+                    }
+                    catch (Exception) { }
+
                     return null;
                 }
 
@@ -6198,6 +7944,42 @@ namespace PublishedAppTracker
                 }
                 catch (Exception) { }
             }
+        }
+
+        /// <summary>
+        /// Detects bot challenge / captcha redirect pages that some servers return
+        /// instead of the real content (e.g. sgcaptcha, Cloudflare, etc.)
+        /// </summary>
+        private static bool IsChallengePage(string source)
+        {
+            if (string.IsNullOrEmpty(source))
+                return false;
+
+            // Very short response is suspicious
+            if (source.Length < 512)
+            {
+                string lower = source.ToLowerInvariant();
+
+                // sgcaptcha redirect (as seen with mutools.com)
+                if (lower.Contains("sgcaptcha"))
+                    return true;
+
+                // Generic meta-refresh to a challenge page
+                if (lower.Contains("meta") && lower.Contains("http-equiv=\"refresh\"") &&
+                    (lower.Contains("captcha") || lower.Contains("challenge")))
+                    return true;
+            }
+
+            // Cloudflare challenges
+            string lowerFull = source.Length > 2000 ? source.Substring(0, 2000).ToLowerInvariant() : source.ToLowerInvariant();
+            if (lowerFull.Contains("just a moment") && lowerFull.Contains("cloudflare"))
+                return true;
+            if (lowerFull.Contains("checking your browser"))
+                return true;
+            if (lowerFull.Contains("attention required") && lowerFull.Contains("cloudflare"))
+                return true;
+
+            return false;
         }
 
         private void OpenBrowser_Click(object sender, RoutedEventArgs e)
@@ -6245,6 +8027,18 @@ namespace PublishedAppTracker
                 SetupHttpHeaders(url);
 
                 currentSource = await httpClient.GetStringAsync(url);
+
+                // Detect bot challenge / captcha redirect pages
+                if (IsChallengePage(currentSource))
+                {
+                    statusFile.Text = "Bot challenge detected, using WebView2...";
+                    string webViewSource = await DownloadViaWebView(url);
+                    if (!string.IsNullOrEmpty(webViewSource) && !IsChallengePage(webViewSource))
+                    {
+                        currentSource = webViewSource;
+                    }
+                }
+
                 long downloadBytes = System.Text.Encoding.UTF8.GetByteCount(currentSource);
 
                 DisplaySource(currentSource);
@@ -7706,72 +9500,33 @@ namespace PublishedAppTracker
                         var menuItems = cmArgs.MenuItems;
                         var contextInfo = cmArgs.ContextMenuTarget;
 
-                        // "Add to Download URL" for file links
-                        if (contextInfo.HasLinkUri)
+                        // "Set as Download URL" for file links
+                        if (contextInfo.HasLinkUri && LooksLikeDownloadUrl(contextInfo.LinkUri))
                         {
                             string linkUrl = contextInfo.LinkUri;
 
-                            string[] fileExtensions = {
-                                ".exe", ".msi", ".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz",
-                                ".dmg", ".pkg", ".deb", ".rpm", ".appimage", ".apk",
-                                ".iso", ".img",
-                                ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-                                ".cab", ".dll", ".sys", ".jar", ".war",
-                                ".bin", ".dat", ".run", ".sh", ".bat", ".cmd", ".ps1",
-                                ".torrent", ".nupkg", ".vsix", ".crx", ".xpi"
+                            var menuItem = webView.CoreWebView2.Environment
+                                .CreateContextMenuItem(
+                                    "Set as Download URL",
+                                    null,
+                                    Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
+
+                            menuItem.CustomItemSelected += (miSender, miArgs) =>
+                            {
+                                Dispatcher.Invoke(() =>
+                                {
+                                    editDownloadURL.Text = linkUrl;
+                                    MarkDirty();
+                                    statusFile.Text = "Download URL set to: " + linkUrl;
+                                });
                             };
 
-                            bool isFileLink = false;
-                            string lowerUrl = linkUrl.ToLowerInvariant();
-
-                            string urlPath = lowerUrl;
-                            int queryIdx = urlPath.IndexOf('?');
-                            if (queryIdx >= 0) urlPath = urlPath.Substring(0, queryIdx);
-                            int fragIdx = urlPath.IndexOf('#');
-                            if (fragIdx >= 0) urlPath = urlPath.Substring(0, fragIdx);
-
-                            foreach (string ext in fileExtensions)
-                            {
-                                if (urlPath.EndsWith(ext))
-                                {
-                                    isFileLink = true;
-                                    break;
-                                }
-                            }
-
-                            if (!isFileLink && (lowerUrl.Contains("/download/") ||
-                                lowerUrl.Contains("/releases/download/") ||
-                                lowerUrl.Contains("sourceforge.net/projects/") ||
-                                lowerUrl.Contains("/dl/")))
-                            {
-                                isFileLink = true;
-                            }
-
-                            if (isFileLink)
-                            {
-                                var menuItem = webView.CoreWebView2.Environment
-                                    .CreateContextMenuItem(
-                                        "Add to Download URL",
-                                        null,
-                                        Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
-
-                                menuItem.CustomItemSelected += (miSender, miArgs) =>
-                                {
-                                    Dispatcher.Invoke(() =>
-                                    {
-                                        editDownloadURL.Text = linkUrl;
-                                        MarkDirty();
-                                        statusFile.Text = "Download URL set to: " + linkUrl;
-                                    });
-                                };
-
-                                menuItems.Insert(0, webView.CoreWebView2.Environment
-                                    .CreateContextMenuItem(
-                                        "",
-                                        null,
-                                        Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Separator));
-                                menuItems.Insert(0, menuItem);
-                            }
+                            menuItems.Insert(0, webView.CoreWebView2.Environment
+                                .CreateContextMenuItem(
+                                    "",
+                                    null,
+                                    Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Separator));
+                            menuItems.Insert(0, menuItem);
                         }
 
                         // "Set as Start String" / "Set as Stop String" for selected text
@@ -7781,14 +9536,9 @@ namespace PublishedAppTracker
 
                             if (!string.IsNullOrEmpty(selectedText))
                             {
-                                // Truncate display text for the menu if very long
-                                string displayText = selectedText.Length > 50
-                                    ? selectedText.Substring(0, 50) + "..."
-                                    : selectedText;
-
                                 var startMenuItem = webView.CoreWebView2.Environment
                                     .CreateContextMenuItem(
-                                        "Set as Start String: " + displayText,
+                                        "Set as Start String",
                                         null,
                                         Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
 
@@ -7800,7 +9550,6 @@ namespace PublishedAppTracker
                                         MarkDirty();
                                         statusFile.Text = "Start String set from selection";
 
-                                        // Refresh source view to show highlighting
                                         if (!string.IsNullOrEmpty(currentSource))
                                             DisplaySource(currentSource);
                                     });
@@ -7808,7 +9557,7 @@ namespace PublishedAppTracker
 
                                 var stopMenuItem = webView.CoreWebView2.Environment
                                     .CreateContextMenuItem(
-                                        "Set as Stop String: " + displayText,
+                                        "Set as Stop String",
                                         null,
                                         Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
 
@@ -7820,7 +9569,6 @@ namespace PublishedAppTracker
                                         MarkDirty();
                                         statusFile.Text = "Stop String set from selection";
 
-                                        // Refresh source view to show highlighting
                                         if (!string.IsNullOrEmpty(currentSource))
                                             DisplaySource(currentSource);
                                     });
@@ -7831,6 +9579,28 @@ namespace PublishedAppTracker
                                         "",
                                         null,
                                         Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Separator));
+
+                                if (LooksLikeDate(selectedText))
+                                {
+                                    var releaseDateMenuItem = webView.CoreWebView2.Environment
+                                        .CreateContextMenuItem(
+                                            "Set to Release Date",
+                                            null,
+                                            Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
+
+                                    releaseDateMenuItem.CustomItemSelected += (miSender, miArgs) =>
+                                    {
+                                        Dispatcher.Invoke(() =>
+                                        {
+                                            editReleaseDate.Text = selectedText;
+                                            MarkDirty();
+                                            statusFile.Text = "Release Date set from selection";
+                                        });
+                                    };
+
+                                    menuItems.Insert(0, releaseDateMenuItem);
+                                }
+
                                 menuItems.Insert(0, stopMenuItem);
                                 menuItems.Insert(0, startMenuItem);
                             }
@@ -7855,6 +9625,92 @@ namespace PublishedAppTracker
                 }
             };
         }
+
+		private bool LooksLikeDate(string text)
+		{
+		    if (string.IsNullOrWhiteSpace(text)) return false;
+		    text = text.Trim();
+
+		    // Try standard .NET date parsing
+		    if (DateTime.TryParse(text, out _)) return true;
+
+		    // Try common date formats explicitly
+		    string[] formats = new string[]
+		    {
+		        "yyyy-MM-dd", "dd-MM-yyyy", "MM-dd-yyyy",
+		        "yyyy/MM/dd", "dd/MM/yyyy", "MM/dd/yyyy",
+		        "yyyy.MM.dd", "dd.MM.yyyy", "MM.dd.yyyy",
+		        "d MMM yyyy", "d MMMM yyyy", "dd MMM yyyy", "dd MMMM yyyy",
+		        "MMM d, yyyy", "MMMM d, yyyy", "MMM dd, yyyy", "MMMM dd, yyyy",
+		        "MMM d yyyy", "MMMM d yyyy", "MMM dd yyyy", "MMMM dd yyyy",
+		        "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-dd HH:mm:ss",
+		        "yyyyMMdd",
+		        "d-MMM-yyyy", "d-MMMM-yyyy", "dd-MMM-yyyy", "dd-MMMM-yyyy",
+		    };
+
+		    if (DateTime.TryParseExact(text, formats,
+		        System.Globalization.CultureInfo.InvariantCulture,
+		        System.Globalization.DateTimeStyles.AllowWhiteSpaces, out _))
+		        return true;
+
+		    // Match patterns like "12 Jan 2025", "January 5, 2025", "2025-01-12", etc.
+		    if (System.Text.RegularExpressions.Regex.IsMatch(text,
+		        @"^\d{1,4}[\-/\.]\d{1,2}[\-/\.]\d{1,4}$")) return true;
+
+		    if (System.Text.RegularExpressions.Regex.IsMatch(text,
+		        @"^\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4}$",
+		        System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return true;
+
+		    if (System.Text.RegularExpressions.Regex.IsMatch(text,
+		        @"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{2,4}$",
+		        System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return true;
+
+		    return false;
+		}
+
+		private bool LooksLikeDownloadUrl(string text)
+		{
+		    if (string.IsNullOrWhiteSpace(text)) return false;
+		    text = text.Trim();
+
+		    // Must look like a URL
+		    if (!text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+		        !text.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+		        !text.StartsWith("ftp://", StringComparison.OrdinalIgnoreCase))
+		        return false;
+
+		    string[] fileExtensions = {
+		        ".exe", ".msi", ".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz",
+		        ".dmg", ".pkg", ".deb", ".rpm", ".appimage", ".apk",
+		        ".iso", ".img",
+		        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+		        ".cab", ".dll", ".sys", ".jar", ".war",
+		        ".bin", ".dat", ".run", ".sh", ".bat", ".cmd", ".ps1",
+		        ".torrent", ".nupkg", ".vsix", ".crx", ".xpi"
+		    };
+
+		    string lowerUrl = text.ToLowerInvariant();
+
+		    string urlPath = lowerUrl;
+		    int queryIdx = urlPath.IndexOf('?');
+		    if (queryIdx >= 0) urlPath = urlPath.Substring(0, queryIdx);
+		    int fragIdx = urlPath.IndexOf('#');
+		    if (fragIdx >= 0) urlPath = urlPath.Substring(0, fragIdx);
+
+		    foreach (string ext in fileExtensions)
+		    {
+		        if (urlPath.EndsWith(ext))
+		            return true;
+		    }
+
+		    if (lowerUrl.Contains("/download/") ||
+		        lowerUrl.Contains("/releases/download/") ||
+		        lowerUrl.Contains("sourceforge.net/projects/") ||
+		        lowerUrl.Contains("/dl/"))
+		        return true;
+
+		    return false;
+		}
 
         private void ApplyAutoZoom()
         {

@@ -48,7 +48,7 @@
 				        Padding="7,4" Margin="2,2,2,2" ToolTip="Open category folder" />
 				<Button x:Name="btnRefreshCategories" Content="&#xE72C;" Click="RefreshCategories_Click"
 				        FontFamily="Segoe Fluent Icons" FontSize="17"
-				        Padding="7,4" Margin="2,2,2,2" ToolTip="Refresh category list" />
+				        Padding="7,4" Margin="2,2,2,2" ToolTip="Refresh lists" />
 				<Separator />
 		        <Button x:Name="btnSave" Content="&#xE74E;" Click="Save_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
@@ -57,6 +57,10 @@
 		        <Button x:Name="btnSaveAs" Content="&#xE792;" Click="SaveTrackAs_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
 		                Padding="7,4" Margin="2,2,2,2" ToolTip="Save track as..."
+		                IsEnabled="False" Opacity="0.4" />
+		        <Button x:Name="btnSaveAll" Content="&#xE78C;" Click="SaveAll_Click"
+		                FontFamily="Segoe Fluent Icons" FontSize="17"
+		                Padding="7,4" Margin="2,2,2,2" ToolTip="Update versions and save all tracks in category"
 		                IsEnabled="False" Opacity="0.4" />
 		        <Separator />
 		        <Button x:Name="btnToggleLayout" Content="&#xeca5;" Click="ToggleLayout_Click"
@@ -69,6 +73,22 @@
 		        <Button x:Name="btnCheckAll" Content="&#xe773;" Click="CheckAll_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
 		                Padding="7,4" Margin="2,2,2,2" ToolTip="Check all tracks in current category" />
+                <Separator />
+                <Button x:Name="btnSelectSuites" Content="&#xE71D;" Click="SelectSuites_Click"
+                        FontFamily="Segoe Fluent Icons" FontSize="17"
+                        Padding="7,4" Margin="2,2,2,2"
+                        ToolTip="Select SPS Suites" />
+				<StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="4,0,4,0">
+				    <TextBlock Text="Publisher:" />
+				    <TextBlock x:Name="txtSearchCount" Text="" FontSize="11" />
+				</StackPanel>
+                <TextBox x:Name="txtPublisherFilter" Width="150" VerticalAlignment="Center"
+                         Margin="2,2,2,2" ToolTip="Filter by SPS publisher name (empty = all)"
+                         KeyDown="txtPublisherFilter_KeyDown" />
+                <Button x:Name="btnReBuild" Content="&#xE777;" Click="ReBuild_Click"
+                        FontFamily="Segoe Fluent Icons" FontSize="17"
+                        Padding="7,4" Margin="2,2,2,2"
+                        ToolTip="Scan SyMenu SPS cache and rebuild category from SPS data" />
 		        <Separator />
 		        <Button x:Name="btnAbout" Content="&#xE946;" Click="About_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
@@ -78,14 +98,18 @@
 
         <!-- Status Bar -->
         <StatusBar DockPanel.Dock="Bottom">
-            <StatusBarItem Margin="5,0,0,0">
+            <StatusBar.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <DockPanel LastChildFill="True" />
+                </ItemsPanelTemplate>
+            </StatusBar.ItemsPanel>
+
+            <StatusBarItem DockPanel.Dock="Left" Margin="5,0,0,0">
                 <ProgressBar x:Name="statusProgress" Width="150" Height="16"
                              Minimum="0" Maximum="100" Value="0" />
             </StatusBarItem>
-            <StatusBarItem>
-                <TextBlock x:Name="statusFile" Text="No file loaded" />
-            </StatusBarItem>
-            <StatusBarItem HorizontalAlignment="Right" Margin="0,0,5,0">
+
+            <StatusBarItem DockPanel.Dock="Right" Margin="0,0,5,0">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xF136;" FontFamily="Segoe Fluent Icons" FontSize="12"
                                Foreground="#00B400" VerticalAlignment="Center" Margin="0,0,2,0" />
@@ -103,6 +127,10 @@
                                Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,2,0" />
                     <TextBlock Text="Unchecked" FontSize="11" VerticalAlignment="Center" />
                 </StackPanel>
+            </StatusBarItem>
+
+            <StatusBarItem>
+                <TextBlock x:Name="statusFile" Text="No file loaded" TextTrimming="CharacterEllipsis" />
             </StatusBarItem>
         </StatusBar>
 
@@ -144,7 +172,7 @@
                     </Grid>
 
                     <!-- Horizontal splitter -->
-                    <GridSplitter Grid.Row="1" Height="5"
+                    <GridSplitter x:Name="trackSettingsSplitterV" Grid.Row="1" Height="5"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   Background="LightGray" Cursor="SizeNS" />
@@ -202,11 +230,12 @@
                     </Grid.ColumnDefinitions>
 
                     <Border x:Name="trackSettingsHostH" Grid.Column="0" />
-                    <GridSplitter Grid.Column="1" Width="5"
+                    <GridSplitter x:Name="trackSettingsSplitterH" Grid.Column="1" Width="5"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   Background="LightGray" Cursor="SizeWE" />
                     <Border x:Name="tabsHostH" Grid.Column="2" />
+
                 </Grid>
             </Grid>
 
