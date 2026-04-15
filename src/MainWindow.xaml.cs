@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -35,6 +36,14 @@ namespace PublishedAppTracker
         private DockPanel trackSettingsPanel;
         private TabControl rightTabs;
         private Microsoft.Web.WebView2.Wpf.WebView2 webView;
+		private CheckBox selectAllCheckbox;
+
+		// Settings tab SPS
+        private Button btnSpsSelectSuites;
+        private Button btnSpsScanCache;
+        private StackPanel spsPublisherSettingsPanel;
+        private TextBlock txtSettingsSearchCount;
+        private TextBox txtSettingsPublisherFilter;
 
         // Track settings fields
         private TextBox editName;
@@ -69,6 +78,7 @@ namespace PublishedAppTracker
         private Button btnSaveAsMain;
         private Button btnTrackMode;
         private bool trackSettingsCollapsed = false;
+        private ToolBarTray trackToolBarTray;
         private ScrollViewer trackSettingsScrollArea;
         private double trackSettingsExpandedWidth = Double.NaN;
         private double trackSettingsExpandedHeight = Double.NaN;
@@ -99,7 +109,9 @@ namespace PublishedAppTracker
         private WindowSettings windowSettings;
         private string windowSettingsPath;
         private StackPanel columnCheckboxPanel;
-  
+		private TabItem themeTabItem;
+		private TabItem appSettingsTabItem;
+
         // Theme
 		private ThemeSettings currentTheme;
 		private string currentThemePath;
@@ -225,7 +237,52 @@ namespace PublishedAppTracker
 			BuildSharedControls();
             btnSaveMain = btnSave;
             btnSaveAsMain = btnSaveAs;
+            UpdateSpsVisibility();
+            UpdateSpsSettingsEnabled();
+            if (!string.IsNullOrEmpty(windowSettings.SpsSuiteRootPath))
+                menuOpenSpsBuilder.Visibility = Visibility.Visible;
+			// Tab close/restore
+            menuViewSettings.Click += (s, ev) =>
+            {
+                if (!rightTabs.Items.Contains(appSettingsTabItem))
+                    rightTabs.Items.Add(appSettingsTabItem);
+                rightTabs.SelectedItem = appSettingsTabItem;
+                ApplyTheme(currentTheme);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    FixClosableTabForegrounds();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            };
+            menuViewTheme.Click += (s, ev) =>
+            {
+                if (!rightTabs.Items.Contains(themeTabItem))
+                    rightTabs.Items.Add(themeTabItem);
+                rightTabs.SelectedItem = themeTabItem;
+                ApplyTheme(currentTheme);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    FixClosableTabForegrounds();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            };
+
+            rightTabs.SelectionChanged += (s, ev) =>
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    FixClosableTabForegrounds();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            };
+
             PlaceControlsInLayout();
+
+            // Restore tab visibility from saved settings
+            if (!windowSettings.TabThemeVisible && rightTabs.Items.Contains(themeTabItem))
+                rightTabs.Items.Remove(themeTabItem);
+            if (!windowSettings.TabAppSettingsVisible && rightTabs.Items.Contains(appSettingsTabItem))
+                rightTabs.Items.Remove(appSettingsTabItem);
+            if (rightTabs.Items.Count > 0)
+                rightTabs.SelectedIndex = 0;
+
             // Restore toolbar position from saved settings
 			if (!string.IsNullOrEmpty(windowSettings.ToolbarPosition) &&
 			    windowSettings.ToolbarPosition != "Top")
@@ -333,6 +390,42 @@ namespace PublishedAppTracker
             };
         }
 
+        private void SetupColumnResizeStabilizer()
+        {
+            GridView gv = itemList.View as GridView;
+            if (gv == null) return;
+
+            foreach (GridViewColumn col in gv.Columns)
+            {
+                DependencyPropertyDescriptor dpd = DependencyPropertyDescriptor.FromProperty(
+                    GridViewColumn.WidthProperty, typeof(GridViewColumn));
+
+                if (dpd != null)
+                {
+                    dpd.AddValueChanged(col, (s, e) =>
+                    {
+                        ScrollViewer sv = FindScrollViewer(itemList);
+                        if (sv == null) return;
+
+                        // Calculate total column width
+                        double totalWidth = 0;
+                        foreach (GridViewColumn c in gv.Columns)
+                            totalWidth += c.ActualWidth;
+
+                        // If columns are narrower than the viewport, clamp scroll to prevent jitter
+                        if (totalWidth <= sv.ViewportWidth && sv.HorizontalOffset > 0)
+                        {
+                            sv.ScrollToHorizontalOffset(0);
+                        }
+                        else if (sv.HorizontalOffset > totalWidth - sv.ViewportWidth)
+                        {
+                            sv.ScrollToHorizontalOffset(totalWidth - sv.ViewportWidth);
+                        }
+                    });
+                }
+            }
+        }
+
         private const int WM_MOUSEHWHEEL = 0x020E;
 
         private IntPtr ListViewTiltWheelHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -401,15 +494,27 @@ namespace PublishedAppTracker
             itemList.Margin = new Thickness(4);
             itemList.SelectionChanged += ItemList_SelectionChanged;
 	        itemList.PreviewMouseLeftButtonDown += ItemList_PreviewMouseDown;
+            itemList.KeyDown += (s, ev) =>
+            {
+                if (ev.Key == System.Windows.Input.Key.Delete)
+                {
+                    DeleteTrack_Click(s, ev);
+                    ev.Handled = true;
+                }
+            };
             itemList.AddHandler(GridViewColumnHeader.ClickEvent,
                 new RoutedEventHandler(ColumnHeader_Click));
 
             GridView gridView = new GridView();
 
             GridViewColumn checkCol = new GridViewColumn();
-            checkCol.Width = 30;
-            FrameworkElementFactory headerCheckbox = new FrameworkElementFactory(typeof(CheckBox));
-            headerCheckbox.AddHandler(CheckBox.ClickEvent, new RoutedEventHandler(SelectAll_Click));
+            checkCol.Width = 26;
+		    FrameworkElementFactory headerCheckbox = new FrameworkElementFactory(typeof(CheckBox));
+		    headerCheckbox.AddHandler(CheckBox.LoadedEvent, new RoutedEventHandler((s, ev) =>
+		    {
+		        selectAllCheckbox = s as CheckBox;
+		    }));
+		    headerCheckbox.AddHandler(CheckBox.ClickEvent, new RoutedEventHandler(SelectAll_Click));
             checkCol.Header = new GridViewColumnHeader();
             checkCol.HeaderTemplate = new DataTemplate();
             checkCol.HeaderTemplate.VisualTree = headerCheckbox;
@@ -493,6 +598,7 @@ namespace PublishedAppTracker
 			
             itemList.ContextMenu = listContextMenu;
             SetupListViewHorizontalScrolling();
+            SetupColumnResizeStabilizer();
 
             // --- Track Settings Panel (Panel 3) ---
             BuildTrackSettingsPanel();
@@ -515,7 +621,7 @@ namespace PublishedAppTracker
             btnToggleTrackPanel.Content = "\uE89F";
             btnToggleTrackPanel.FontFamily = new FontFamily("Segoe Fluent Icons");
             btnToggleTrackPanel.FontSize = 14;
-            btnToggleTrackPanel.Width = 37;
+            btnToggleTrackPanel.Width = 35;
             btnToggleTrackPanel.Margin = new Thickness(3, 0, 3, 0);
             btnToggleTrackPanel.Padding = new Thickness(0);
             btnToggleTrackPanel.ToolTip = "Collapse Track Settings panel";
@@ -547,8 +653,9 @@ namespace PublishedAppTracker
                             int col = Grid.GetColumn(trackSettingsHostH);
                             trackSettingsExpandedWidth = bottomGrid.ColumnDefinitions[col].ActualWidth;
                             bottomGrid.ColumnDefinitions[col].MinWidth = 0;
-                            bottomGrid.ColumnDefinitions[col].Width = new GridLength(41, GridUnitType.Pixel);
+                            bottomGrid.ColumnDefinitions[col].Width = new GridLength(38, GridUnitType.Pixel);
                         }
+                        trackToolBarTray.Margin = new Thickness(0, 0, 0, 0);
                     }
                     else
                     {
@@ -573,6 +680,8 @@ namespace PublishedAppTracker
                 {
                     if (isHorizontalLayout)
                     {
+                        trackToolBarTray.Margin = new Thickness(0, 0, 0, 0);
+
                         Grid bottomGrid = trackSettingsHostH.Parent as Grid;
                         if (bottomGrid != null)
                         {
@@ -606,11 +715,11 @@ namespace PublishedAppTracker
                     trackSettingsCollapsed = false;
                 }
             };
-                        
+
             trackSettingsPanel.Children.Add(headerRow);
 
             // ---- Vertical toolbar docked to the left ----
-            ToolBarTray trackToolBarTray = new ToolBarTray();
+            trackToolBarTray = new ToolBarTray();
             trackToolBarTray.Orientation = Orientation.Vertical;
             DockPanel.SetDock(trackToolBarTray, Dock.Left);
 
@@ -635,10 +744,10 @@ namespace PublishedAppTracker
 
             trackToolBar.Items.Add(new Separator());
 
-            Button btnGoStart = CreateToolBarButton("\uE768", "Go to Start String", GoToStartString_Click);
+            Button btnGoStart = CreateToolBarButton("\xe761", "Go to Start String", GoToStartString_Click);
             trackToolBar.Items.Add(btnGoStart);
 
-            Button btnGoStop = CreateToolBarButton("\uE71A", "Go to Stop String", GoToStopString_Click);
+            Button btnGoStop = CreateToolBarButton("\xe760", "Go to Stop String", GoToStopString_Click);
             trackToolBar.Items.Add(btnGoStop);
 
             trackToolBar.Items.Add(new Separator());
@@ -649,6 +758,7 @@ namespace PublishedAppTracker
             btnTrackMode.FontSize = 12;
             btnTrackMode.FontWeight = FontWeights.Bold;
             btnTrackMode.Margin = new Thickness(1, 2, 1, 2);
+			btnTrackMode.Padding = new Thickness(3, 1, 3, 3);
             btnTrackMode.ToolTip = "Track Mode: HTML (click to switch to Text)";
             btnTrackMode.Click += (s, ev) =>
             {
@@ -701,6 +811,13 @@ namespace PublishedAppTracker
             // Hide the overflow grip so buttons align left
             trackToolBar.Loaded += (s, ev) =>
             {
+                // Prevent all items from going into overflow
+                foreach (var item in trackToolBar.Items)
+                {
+                    if (item is FrameworkElement fe)
+                        ToolBar.SetOverflowMode(fe, OverflowMode.Never);
+                }
+
                 var overflowGrid = trackToolBar.Template.FindName("OverflowGrid", trackToolBar) as FrameworkElement;
                 if (overflowGrid != null)
                     overflowGrid.Visibility = Visibility.Collapsed;
@@ -712,7 +829,7 @@ namespace PublishedAppTracker
 
             // Force narrow width to match the old horizontal toolbar height
             trackToolBarTray.Width = 38;
-            trackToolBarTray.Margin = new Thickness(1, 0, 1, 0);
+            trackToolBarTray.Margin = new Thickness(0, 0, 0, 0);
 
             trackSettingsPanel.Children.Add(trackToolBarTray);
 
@@ -725,6 +842,7 @@ namespace PublishedAppTracker
             fieldsPanel.Margin = new Thickness(8);
 
             editName = AddSettingsField(fieldsPanel, "Track Name:");
+            editName.ToolTip = "Set a name for your track. This is not a filename.";
 
             // Track URL with buttons
             TextBlock urlLabel = new TextBlock();
@@ -736,6 +854,7 @@ namespace PublishedAppTracker
             urlDock.Margin = new Thickness(0, 0, 0, 8);
 
             editTrackURL = new TextBox();
+            editTrackURL.ToolTip = "The webpage to check for info.";
             urlDock.Children.Add(editTrackURL);
             fieldsPanel.Children.Add(urlDock);
 
@@ -752,7 +871,7 @@ namespace PublishedAppTracker
             startLabelDock.Children.Add(startPositionText);
 
             TextBlock startLabel = new TextBlock();
-            startLabel.Text = "Start String:";
+            startLabel.Text = "Version Start String:";
             startLabelDock.Children.Add(startLabel);
 
             fieldsPanel.Children.Add(startLabelDock);
@@ -765,6 +884,7 @@ namespace PublishedAppTracker
             editStartString.AcceptsReturn = true;
             editStartString.TextWrapping = TextWrapping.Wrap;
             editStartString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            editStartString.ToolTip = "Enter unique identifier for the start string.";
             startDock.Children.Add(editStartString);
             fieldsPanel.Children.Add(startDock);
             editStartString.TextChanged += (s, ev) =>
@@ -786,7 +906,7 @@ namespace PublishedAppTracker
             stopLabelDock.Children.Add(stopPositionText);
 
             TextBlock stopLabel = new TextBlock();
-            stopLabel.Text = "Stop String:";
+            stopLabel.Text = "Version Stop String:";
             stopLabelDock.Children.Add(stopLabel);
 
             fieldsPanel.Children.Add(stopLabelDock);
@@ -799,8 +919,10 @@ namespace PublishedAppTracker
             editStopString.AcceptsReturn = true;
             editStopString.TextWrapping = TextWrapping.Wrap;
             editStopString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            editStopString.ToolTip = "Enter a string that follows info to be tracked.";
             stopDock.Children.Add(editStopString);
             fieldsPanel.Children.Add(stopDock);
+
             editDownloadURL = AddSettingsField(fieldsPanel, "Download URL:");
             editDownloadURL.ToolTip =
                 "Use {VERSION} placeholders to auto-insert the current version:\n\n" +
@@ -810,7 +932,9 @@ namespace PublishedAppTracker
                 "Example:\n" +
                 "https://example.com/downloads/App_{VERSION_}.exe\n" +
                 "resolves to: https://example.com/downloads/App_2_18.exe";
+
             editVersion = AddSettingsField(fieldsPanel, "Version:", 150);
+            editVersion.ToolTip = "After a check, use Update Version button to update this field.";
             editStopString.TextChanged += (s, ev) =>
             {
                 if (!isLoadingFields)
@@ -835,6 +959,7 @@ namespace PublishedAppTracker
             latestDisplay.FontWeight = FontWeights.Bold;
             latestDisplay.FontSize = 14;
             latestDisplay.VerticalAlignment = VerticalAlignment.Center;
+            latestDisplay.ToolTip = "After a check, this displays last tracked info.";
             latestDock.Children.Add(latestDisplay);
             editLatestVersion = latestDisplay;
 
@@ -842,8 +967,11 @@ namespace PublishedAppTracker
 
             // Metadata fields
             editReleaseDate = AddSettingsField(fieldsPanel, "Release Date:");
+            editReleaseDate.ToolTip = "Shows the current version release date.";
             editPublisherName = AddSettingsField(fieldsPanel, "Publisher Name:");
+            editPublisherName.ToolTip = "Used to display info from SPS files.";
             editSuiteName = AddSettingsField(fieldsPanel, "Suite Name:");
+            editSuiteName.ToolTip = "Used to display info from SPS files.";
 
             scrollArea.Content = fieldsPanel;
             trackSettingsPanel.Children.Add(scrollArea);
@@ -1116,8 +1244,9 @@ namespace PublishedAppTracker
 			rightTabs.Items.Add(sourceTab);
 
             // Tab 4: App Settings
-            TabItem appSettingsTab = new TabItem();
-            appSettingsTab.Header = "⚙ App Settings";
+            appSettingsTabItem = new TabItem();
+            TabItem appSettingsTab = appSettingsTabItem;
+            appSettingsTab.Header = CreateClosableTabHeader("⚙ Settings", appSettingsTab);
 
             DockPanel appSettingsOuter = new DockPanel();
 
@@ -1193,12 +1322,22 @@ namespace PublishedAppTracker
             StackPanel appSettingsPanel = new StackPanel();
             appSettingsPanel.Margin = new Thickness(12);
 
-            // Editor path setting
+            // Editor path setting (bordered)
+            Border editorBorder = new Border();
+            editorBorder.BorderBrush = Brushes.Gray;
+            editorBorder.BorderThickness = new Thickness(1);
+            editorBorder.CornerRadius = new CornerRadius(4);
+            editorBorder.Padding = new Thickness(10);
+            editorBorder.Margin = new Thickness(0, 0, 0, 16);
+
+            StackPanel editorGroupPanel = new StackPanel();
+
             TextBlock editorLabel = new TextBlock();
             editorLabel.Text = "Text Editor Path:";
             editorLabel.FontWeight = FontWeights.Bold;
             editorLabel.Margin = new Thickness(0, 0, 0, 4);
-            appSettingsPanel.Children.Add(editorLabel);
+            editorLabel.Tag = "ThemeGroupHeader";
+            editorGroupPanel.Children.Add(editorLabel);
 
             TextBlock editorHint = new TextBlock();
             editorHint.Text = "Path to a text editor for opening .track files. Can be relative to app folder. Leave blank for system default.";
@@ -1206,10 +1345,9 @@ namespace PublishedAppTracker
             editorHint.FontSize = 11;
             editorHint.TextWrapping = TextWrapping.Wrap;
             editorHint.Margin = new Thickness(0, 0, 0, 4);
-            appSettingsPanel.Children.Add(editorHint);
+            editorGroupPanel.Children.Add(editorHint);
 
             DockPanel editorDock = new DockPanel();
-            editorDock.Margin = new Thickness(0, 0, 0, 16);
 
             Button btnBrowseEditor = new Button();
             btnBrowseEditor.Content = "\xe838";
@@ -1226,14 +1364,27 @@ namespace PublishedAppTracker
             editEditorPath.Text = windowSettings.EditorPath ?? "";
             editorDock.Children.Add(editEditorPath);
 
-            appSettingsPanel.Children.Add(editorDock);
+            editorGroupPanel.Children.Add(editorDock);
 
-            // SyMenu SPSSuite path setting
+            editorBorder.Child = editorGroupPanel;
+            appSettingsPanel.Children.Add(editorBorder);
+
+            // SPS Settings group (bordered)
+            Border spsBorder = new Border();
+            spsBorder.BorderBrush = Brushes.Gray;
+            spsBorder.BorderThickness = new Thickness(1);
+            spsBorder.CornerRadius = new CornerRadius(4);
+            spsBorder.Padding = new Thickness(10);
+            spsBorder.Margin = new Thickness(0, 0, 0, 16);
+
+            StackPanel spsGroupPanel = new StackPanel();
+
             TextBlock syMenuLabel = new TextBlock();
             syMenuLabel.Text = "SPSSuite Path:";
             syMenuLabel.FontWeight = FontWeights.Bold;
             syMenuLabel.Margin = new Thickness(0, 0, 0, 4);
-            appSettingsPanel.Children.Add(syMenuLabel);
+            syMenuLabel.Tag = "ThemeGroupHeader";
+            spsGroupPanel.Children.Add(syMenuLabel);
 
             TextBlock syMenuHint = new TextBlock();
             syMenuHint.Text = "Path to the SyMenu SPSSuite folder (e.g. SyMenu\\ProgramFiles\\SPSSuite). Used for SPS ReBuild.";
@@ -1241,10 +1392,10 @@ namespace PublishedAppTracker
             syMenuHint.FontSize = 11;
             syMenuHint.TextWrapping = TextWrapping.Wrap;
             syMenuHint.Margin = new Thickness(0, 0, 0, 4);
-            appSettingsPanel.Children.Add(syMenuHint);
+            spsGroupPanel.Children.Add(syMenuHint);
 
             DockPanel syMenuDock = new DockPanel();
-            syMenuDock.Margin = new Thickness(0, 0, 0, 16);
+            syMenuDock.Margin = new Thickness(0, 0, 0, 8);
 
             Button btnBrowseSyMenu = new Button();
             btnBrowseSyMenu.Content = "\xe838";
@@ -1276,6 +1427,8 @@ namespace PublishedAppTracker
                     editSyMenuPath.Text = selected;
                     windowSettings.SpsSuiteRootPath = selected;
                     windowSettings.Save(windowSettingsPath);
+                    UpdateSpsVisibility();
+                    UpdateSpsSettingsEnabled();
                     statusFile.Text = "SPSSuite path set: " + selected;
                 }
             };
@@ -1284,16 +1437,87 @@ namespace PublishedAppTracker
 
             editSyMenuPath = new TextBox();
             editSyMenuPath.Text = windowSettings.SpsSuiteRootPath ?? "";
+            editSyMenuPath.TextChanged += (s, ev) =>
+            {
+                string path = editSyMenuPath.Text.Trim();
+                windowSettings.SpsSuiteRootPath = string.IsNullOrEmpty(path) ? null : path;
+                windowSettings.Save(windowSettingsPath);
+                UpdateSpsVisibility();
+                UpdateSpsSettingsEnabled();
+            };
             syMenuDock.Children.Add(editSyMenuPath);
 
-            appSettingsPanel.Children.Add(syMenuDock);
+            spsGroupPanel.Children.Add(syMenuDock);
 
-            // Column Visibility section
+            // SPS action buttons and publisher filter
+            WrapPanel spsButtonPanel = new WrapPanel();
+            spsButtonPanel.Margin = new Thickness(0, 4, 0, 0);
+
+            btnSpsSelectSuites = new Button();
+            btnSpsSelectSuites.Content = "\xE71D";
+            btnSpsSelectSuites.FontFamily = new FontFamily("Segoe Fluent Icons");
+            btnSpsSelectSuites.FontSize = 17;
+            btnSpsSelectSuites.Padding = new Thickness(7, 4, 7, 4);
+            btnSpsSelectSuites.Margin = new Thickness(0, 0, 4, 0);
+            btnSpsSelectSuites.ToolTip = "Select SPS Suites";
+            btnSpsSelectSuites.Click += SelectSuites_Click;
+            spsButtonPanel.Children.Add(btnSpsSelectSuites);
+
+            btnSpsScanCache = new Button();
+            btnSpsScanCache.Content = "\xE777";
+            btnSpsScanCache.FontFamily = new FontFamily("Segoe Fluent Icons");
+            btnSpsScanCache.FontSize = 17;
+            btnSpsScanCache.Padding = new Thickness(7, 4, 7, 4);
+            btnSpsScanCache.Margin = new Thickness(0, 0, 8, 0);
+            btnSpsScanCache.ToolTip = "Scan SyMenu SPS cache and rebuild category from SPS data";
+            btnSpsScanCache.Click += ReBuild_Click;
+            spsButtonPanel.Children.Add(btnSpsScanCache);
+
+            spsPublisherSettingsPanel = new StackPanel();
+            spsPublisherSettingsPanel.Orientation = Orientation.Vertical;
+            spsPublisherSettingsPanel.VerticalAlignment = VerticalAlignment.Center;
+            spsPublisherSettingsPanel.Margin = new Thickness(4, 0, 4, 0);
+
+            TextBlock settingsPublisherLabel = new TextBlock();
+            settingsPublisherLabel.Text = "Publisher:";
+            spsPublisherSettingsPanel.Children.Add(settingsPublisherLabel);
+
+            txtSettingsSearchCount = new TextBlock();
+            txtSettingsSearchCount.Text = "";
+            txtSettingsSearchCount.FontSize = 11;
+            spsPublisherSettingsPanel.Children.Add(txtSettingsSearchCount);
+
+            spsButtonPanel.Children.Add(spsPublisherSettingsPanel);
+
+            txtSettingsPublisherFilter = new TextBox();
+            txtSettingsPublisherFilter.Width = 150;
+            txtSettingsPublisherFilter.VerticalAlignment = VerticalAlignment.Center;
+            txtSettingsPublisherFilter.Margin = new Thickness(2, 0, 2, 0);
+            txtSettingsPublisherFilter.ToolTip = "Filter by SPS publisher name (empty = all)";
+            txtSettingsPublisherFilter.KeyDown += txtPublisherFilter_KeyDown;
+            spsButtonPanel.Children.Add(txtSettingsPublisherFilter);
+
+            spsGroupPanel.Children.Add(spsButtonPanel);
+
+            spsBorder.Child = spsGroupPanel;
+            appSettingsPanel.Children.Add(spsBorder);
+
+            // Column Visibility section (bordered)
+            Border columnBorder = new Border();
+            columnBorder.BorderBrush = Brushes.Gray;
+            columnBorder.BorderThickness = new Thickness(1);
+            columnBorder.CornerRadius = new CornerRadius(4);
+            columnBorder.Padding = new Thickness(10);
+            columnBorder.Margin = new Thickness(0, 0, 0, 16);
+
+            StackPanel columnGroupPanel = new StackPanel();
+
             TextBlock colTitle = new TextBlock();
             colTitle.Text = "Column Visibility:";
             colTitle.FontWeight = FontWeights.Bold;
             colTitle.Margin = new Thickness(0, 0, 0, 4);
-            appSettingsPanel.Children.Add(colTitle);
+            colTitle.Tag = "ThemeGroupHeader";
+            columnGroupPanel.Children.Add(colTitle);
 
             TextBlock colHint = new TextBlock();
             colHint.Text = "Show/hide columns. Drag column headers to reorder. Drag column edges to resize.";
@@ -1301,7 +1525,7 @@ namespace PublishedAppTracker
             colHint.FontSize = 11;
             colHint.TextWrapping = TextWrapping.Wrap;
             colHint.Margin = new Thickness(0, 0, 0, 8);
-            appSettingsPanel.Children.Add(colHint);
+            columnGroupPanel.Children.Add(colHint);
 
             // Build checkbox list from current or default settings
             List<ColumnSetting> currentColSettings = windowSettings.ColumnSettings;
@@ -1310,7 +1534,6 @@ namespace PublishedAppTracker
             currentColSettings.Sort((a, b) => a.DisplayIndex.CompareTo(b.DisplayIndex));
 
             columnCheckboxPanel = new StackPanel();
-            columnCheckboxPanel.Margin = new Thickness(0, 0, 0, 16);
 
             foreach (ColumnSetting cs in currentColSettings)
             {
@@ -1322,10 +1545,15 @@ namespace PublishedAppTracker
                 columnCheckboxPanel.Children.Add(chk);
             }
 
-            appSettingsPanel.Children.Add(columnCheckboxPanel);
+            columnGroupPanel.Children.Add(columnCheckboxPanel);
+
+            columnBorder.Child = columnGroupPanel;
+            appSettingsPanel.Children.Add(columnBorder);
 
             appSettingsScroll.Content = appSettingsPanel;
             appSettingsOuter.Children.Add(appSettingsScroll);
+            // Apply initial theme colors to settings group headers
+            ApplyGroupHeadersToPanel(appSettingsPanel, new SolidColorBrush(currentTheme.TabSelectedForeground), new SolidColorBrush(currentTheme.SplitterColor));
             appSettingsTab.Content = appSettingsOuter;
 
             // Tab 2: WebView2
@@ -2222,7 +2450,7 @@ namespace PublishedAppTracker
                     currentItems.Add(item);
                 }
 
-                txtPublisherFilter.Text = publisherFilter;
+                if (txtSettingsPublisherFilter != null) txtSettingsPublisherFilter.Text = publisherFilter;
 
                 isLoadingFields = true;
                 itemList.ItemsSource = null;
@@ -2568,6 +2796,11 @@ namespace PublishedAppTracker
                 return;
             }
 
+            // Tick all checkboxes by simulating the Select All header checkbox
+            CheckBox tempCb = new CheckBox();
+            tempCb.IsChecked = true;
+            SelectAll_Click(tempCb, new RoutedEventArgs());
+
             await BatchCheck(currentItems.ToList());
         }
 
@@ -2797,7 +3030,9 @@ namespace PublishedAppTracker
                 {
                     string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
                     string xmlPath;
-                    string publisherFilter = txtPublisherFilter.Text.Trim();
+                    string publisherFilter = txtSettingsPublisherFilter != null
+                        ? txtSettingsPublisherFilter.Text.Trim()
+                        : "";
                     string suitePath = "";
                     List<string> savedSuites = windowSettings.SelectedSuites;
 
@@ -3343,7 +3578,9 @@ namespace PublishedAppTracker
                 SaveCurrentTrackFields();
                 string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
                 string xmlPath;
-                string publisherFilter = txtPublisherFilter.Text.Trim();
+                string publisherFilter = txtSettingsPublisherFilter != null
+                	? txtSettingsPublisherFilter.Text.Trim()
+                	: "";
                 string suitePath = "";
                 List<string> savedSuites = windowSettings.SelectedSuites;
 
@@ -3518,24 +3755,45 @@ namespace PublishedAppTracker
             {
                 try
                 {
+                    int deletedIndex = currentItems.IndexOf(selected);
+
                     if (File.Exists(selected.FilePath))
                     {
                         File.Delete(selected.FilePath);
                     }
 
                     isLoadingFields = true;
+                    suppressAutoDownload = true;
 
                     // Reload the current category
-                    TreeViewItem selectedCat = categoryTree.SelectedItem as TreeViewItem;
                     if (!string.IsNullOrEmpty(currentCategoryPath))
                     {
                         LoadTrackFiles(currentCategoryPath);
                     }
 
+                    suppressCategoryReload = true;
                     RefreshCategoryTree();
-                    ClearTrackFields();
+                    suppressCategoryReload = false;
 
-                    isLoadingFields = false;
+                    // Select the next available item
+                    if (currentItems.Count > 0)
+                    {
+                        int newIndex = deletedIndex;
+                        if (newIndex >= currentItems.Count)
+                            newIndex = currentItems.Count - 1;
+
+                        suppressAutoDownload = false;
+                        isLoadingFields = false;
+                        itemList.SelectedIndex = newIndex;
+                    }
+                    else
+                    {
+                        ClearTrackFields();
+                        currentTrackItem = null;
+                        suppressAutoDownload = false;
+                        isLoadingFields = false;
+                    }
+
                     RecalculateCategoryDirty();
                     isDirty = false;
                     UpdateSaveButtonStates();
@@ -3544,6 +3802,7 @@ namespace PublishedAppTracker
                 }
                 catch (Exception ex)
                 {
+                    suppressAutoDownload = false;
                     isLoadingFields = false;
                     MessageBox.Show("Error deleting track: " + ex.Message,
                         "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -3673,7 +3932,9 @@ namespace PublishedAppTracker
                     // Save the entire SPS category XML
                     string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
                     string xmlPath;
-                    string publisherFilter = txtPublisherFilter.Text.Trim();
+                    string publisherFilter = txtSettingsPublisherFilter != null
+                        ? txtSettingsPublisherFilter.Text.Trim()
+                        : "";
                     string suitePath = "";
                     List<string> savedSuites = windowSettings.SelectedSuites;
 
@@ -4128,6 +4389,8 @@ namespace PublishedAppTracker
                 windowSettings.EditorPath = editEditorPath.Text.Trim();
                 if (editSyMenuPath != null)
                     windowSettings.SpsSuiteRootPath = editSyMenuPath.Text.Trim();
+                windowSettings.TabThemeVisible = rightTabs.Items.Contains(themeTabItem);
+                windowSettings.TabAppSettingsVisible = rightTabs.Items.Contains(appSettingsTabItem);
                 windowSettings.Save(windowSettingsPath);
             }
             catch (Exception)
@@ -4141,8 +4404,9 @@ namespace PublishedAppTracker
 
 		private TabItem BuildThemeTab()
 		{
-		    TabItem themeTab = new TabItem();
-		    themeTab.Header = "🎨 Theme";
+		    themeTabItem = new TabItem();
+		    TabItem themeTab = themeTabItem;
+		    themeTab.Header = CreateClosableTabHeader("🎨 Theme", themeTab);
 
 		    DockPanel themeOuterPanel = new DockPanel();
 
@@ -4308,100 +4572,126 @@ namespace PublishedAppTracker
 		    // themePanel was declared at the top of the method
 
 		    // ---- Build color swatch rows ----
-		    AddThemeSection(themePanel, "Window & General");
-		    AddColorSwatch(themePanel, "Window Background", () => previewTheme.WindowBackground, c => previewTheme.WindowBackground = c);
-		    AddColorSwatch(themePanel, "Window Foreground", () => previewTheme.WindowForeground, c => previewTheme.WindowForeground = c);
-		    AddColorSwatch(themePanel, "Button Background", () => previewTheme.ButtonBackground, c => previewTheme.ButtonBackground = c);
-		    AddColorSwatch(themePanel, "Button Foreground", () => previewTheme.ButtonForeground, c => previewTheme.ButtonForeground = c);
-		    AddColorSwatch(themePanel, "Splitter Color", () => previewTheme.SplitterColor, c => previewTheme.SplitterColor = c);
+		    AddThemeGroup(themePanel, "Window & General", panel =>
+		    {
+		        AddColorSwatch(panel, "Window Background", () => previewTheme.WindowBackground, c => previewTheme.WindowBackground = c);
+		        AddColorSwatch(panel, "Window Foreground", () => previewTheme.WindowForeground, c => previewTheme.WindowForeground = c);
+		        AddColorSwatch(panel, "Button Background", () => previewTheme.ButtonBackground, c => previewTheme.ButtonBackground = c);
+		        AddColorSwatch(panel, "Button Foreground", () => previewTheme.ButtonForeground, c => previewTheme.ButtonForeground = c);
+		        AddColorSwatch(panel, "Splitter Color", () => previewTheme.SplitterColor, c => previewTheme.SplitterColor = c);
+		    });
 
-		    AddThemeSection(themePanel, "Menu & Toolbar");
-		    AddColorSwatch(themePanel, "Menu Background", () => previewTheme.MenuBackground, c => previewTheme.MenuBackground = c);
-		    AddColorSwatch(themePanel, "Menu Foreground", () => previewTheme.MenuForeground, c => previewTheme.MenuForeground = c);
-		    AddColorSwatch(themePanel, "Main Toolbar Background", () => previewTheme.MainToolbarBackground, c => previewTheme.MainToolbarBackground = c);
-		    AddColorSwatch(themePanel, "Main Toolbar Foreground", () => previewTheme.MainToolbarForeground, c => previewTheme.MainToolbarForeground = c);
-		    AddColorSwatch(themePanel, "Toolbar Background", () => previewTheme.ToolbarBackground, c => previewTheme.ToolbarBackground = c);
-		    AddColorSwatch(themePanel, "Toolbar Foreground", () => previewTheme.ToolbarForeground, c => previewTheme.ToolbarForeground = c);
+		    AddThemeGroup(themePanel, "Menu & Toolbar", panel =>
+		    {
+		        AddColorSwatch(panel, "Menu Background", () => previewTheme.MenuBackground, c => previewTheme.MenuBackground = c);
+		        AddColorSwatch(panel, "Menu Foreground", () => previewTheme.MenuForeground, c => previewTheme.MenuForeground = c);
+		        AddColorSwatch(panel, "Main Toolbar Background", () => previewTheme.MainToolbarBackground, c => previewTheme.MainToolbarBackground = c);
+		        AddColorSwatch(panel, "Main Toolbar Foreground", () => previewTheme.MainToolbarForeground, c => previewTheme.MainToolbarForeground = c);
+		        AddColorSwatch(panel, "Toolbar Background", () => previewTheme.ToolbarBackground, c => previewTheme.ToolbarBackground = c);
+		        AddColorSwatch(panel, "Toolbar Foreground", () => previewTheme.ToolbarForeground, c => previewTheme.ToolbarForeground = c);
+		    });
 
-		    AddThemeSection(themePanel, "Status Bar");
-		    AddColorSwatch(themePanel, "StatusBar Background", () => previewTheme.StatusBarBackground, c => previewTheme.StatusBarBackground = c);
-		    AddColorSwatch(themePanel, "StatusBar Foreground", () => previewTheme.StatusBarForeground, c => previewTheme.StatusBarForeground = c);
-		    AddColorSwatch(themePanel, "ProgressBar Background", () => previewTheme.ProgressBarBackground, c => previewTheme.ProgressBarBackground = c);
-			AddColorSwatch(themePanel, "ProgressBar Foreground", () => previewTheme.ProgressBarForeground, c => previewTheme.ProgressBarForeground = c);
+		    AddThemeGroup(themePanel, "Status Bar", panel =>
+		    {
+		        AddColorSwatch(panel, "StatusBar Background", () => previewTheme.StatusBarBackground, c => previewTheme.StatusBarBackground = c);
+		        AddColorSwatch(panel, "StatusBar Foreground", () => previewTheme.StatusBarForeground, c => previewTheme.StatusBarForeground = c);
+		        AddColorSwatch(panel, "ProgressBar Background", () => previewTheme.ProgressBarBackground, c => previewTheme.ProgressBarBackground = c);
+		        AddColorSwatch(panel, "ProgressBar Foreground", () => previewTheme.ProgressBarForeground, c => previewTheme.ProgressBarForeground = c);
+		    });
 
-		    AddThemeSection(themePanel, "Category Tree");
-		    AddColorSwatch(themePanel, "Tree Background", () => previewTheme.TreeBackground, c => previewTheme.TreeBackground = c);
-		    AddColorSwatch(themePanel, "Tree Foreground", () => previewTheme.TreeForeground, c => previewTheme.TreeForeground = c);
-		    AddColorSwatch(themePanel, "Tree Selected Background", () => previewTheme.TreeSelectedBackground, c => previewTheme.TreeSelectedBackground = c);
-		    AddColorSwatch(themePanel, "Tree Selected Foreground", () => previewTheme.TreeSelectedForeground, c => previewTheme.TreeSelectedForeground = c);
+		    AddThemeGroup(themePanel, "Category Tree", panel =>
+		    {
+		        AddColorSwatch(panel, "Tree Background", () => previewTheme.TreeBackground, c => previewTheme.TreeBackground = c);
+		        AddColorSwatch(panel, "Tree Foreground", () => previewTheme.TreeForeground, c => previewTheme.TreeForeground = c);
+		        AddColorSwatch(panel, "Tree Selected Background", () => previewTheme.TreeSelectedBackground, c => previewTheme.TreeSelectedBackground = c);
+		        AddColorSwatch(panel, "Tree Selected Foreground", () => previewTheme.TreeSelectedForeground, c => previewTheme.TreeSelectedForeground = c);
+		    });
 
-		    AddThemeSection(themePanel, "ListView");
-		    AddColorSwatch(themePanel, "List Background", () => previewTheme.ListBackground, c => previewTheme.ListBackground = c);
-		    AddColorSwatch(themePanel, "List: Name/Version Columns", () => previewTheme.ListForeground, c => previewTheme.ListForeground = c);
-		    AddColorSwatch(themePanel, "List Header Background", () => previewTheme.ListHeaderBackground, c => previewTheme.ListHeaderBackground = c);
-		    AddColorSwatch(themePanel, "List Header Foreground", () => previewTheme.ListHeaderForeground, c => previewTheme.ListHeaderForeground = c);
-		    AddColorSwatch(themePanel, "List Selected Background", () => previewTheme.ListSelectedBackground, c => previewTheme.ListSelectedBackground = c);
-		    AddColorSwatch(themePanel, "List Selected Foreground", () => previewTheme.ListSelectedForeground, c => previewTheme.ListSelectedForeground = c);
-		    AddColorSwatch(themePanel, "List Hover Background", () => previewTheme.ListHoverBackground, c => previewTheme.ListHoverBackground = c);
-		    AddColorSwatch(themePanel, "List Hover Foreground", () => previewTheme.ListHoverForeground, c => previewTheme.ListHoverForeground = c);
-		    AddColorSwatch(themePanel, "Header Hover Background", () => previewTheme.ListHeaderHoverBackground, c => previewTheme.ListHeaderHoverBackground = c);
-			AddColorSwatch(themePanel, "Header Hover Foreground", () => previewTheme.ListHeaderHoverForeground, c => previewTheme.ListHeaderHoverForeground = c);
+		    AddThemeGroup(themePanel, "ListView", panel =>
+		    {
+		        AddColorSwatch(panel, "List Background", () => previewTheme.ListBackground, c => previewTheme.ListBackground = c);
+		        AddColorSwatch(panel, "List: Name/Version Columns", () => previewTheme.ListForeground, c => previewTheme.ListForeground = c);
+		        AddColorSwatch(panel, "List Header Background", () => previewTheme.ListHeaderBackground, c => previewTheme.ListHeaderBackground = c);
+		        AddColorSwatch(panel, "List Header Foreground", () => previewTheme.ListHeaderForeground, c => previewTheme.ListHeaderForeground = c);
+		        AddColorSwatch(panel, "List Selected Background", () => previewTheme.ListSelectedBackground, c => previewTheme.ListSelectedBackground = c);
+		        AddColorSwatch(panel, "List Selected Foreground", () => previewTheme.ListSelectedForeground, c => previewTheme.ListSelectedForeground = c);
+		        AddColorSwatch(panel, "List Hover Background", () => previewTheme.ListHoverBackground, c => previewTheme.ListHoverBackground = c);
+		        AddColorSwatch(panel, "List Hover Foreground", () => previewTheme.ListHoverForeground, c => previewTheme.ListHoverForeground = c);
+		        AddColorSwatch(panel, "Header Hover Background", () => previewTheme.ListHeaderHoverBackground, c => previewTheme.ListHeaderHoverBackground = c);
+		        AddColorSwatch(panel, "Header Hover Foreground", () => previewTheme.ListHeaderHoverForeground, c => previewTheme.ListHeaderHoverForeground = c);
+		    });
 
-			AddThemeSection(themePanel, "ComboBox");
-			AddColorSwatch(themePanel, "Background", () => previewTheme.ComboBoxBackground, c => previewTheme.ComboBoxBackground = c);
-			AddColorSwatch(themePanel, "Foreground", () => previewTheme.ComboBoxForeground, c => previewTheme.ComboBoxForeground = c);
-			AddColorSwatch(themePanel, "Border", () => previewTheme.ComboBoxBorder, c => previewTheme.ComboBoxBorder = c);
-			AddColorSwatch(themePanel, "Button Background", () => previewTheme.ComboBoxButtonBackground, c => previewTheme.ComboBoxButtonBackground = c);
-			AddColorSwatch(themePanel, "Button Arrow", () => previewTheme.ComboBoxButtonForeground, c => previewTheme.ComboBoxButtonForeground = c);
+		    AddThemeGroup(themePanel, "ComboBox", panel =>
+		    {
+		        AddColorSwatch(panel, "Background", () => previewTheme.ComboBoxBackground, c => previewTheme.ComboBoxBackground = c);
+		        AddColorSwatch(panel, "Foreground", () => previewTheme.ComboBoxForeground, c => previewTheme.ComboBoxForeground = c);
+		        AddColorSwatch(panel, "Border", () => previewTheme.ComboBoxBorder, c => previewTheme.ComboBoxBorder = c);
+		        AddColorSwatch(panel, "Button Background", () => previewTheme.ComboBoxButtonBackground, c => previewTheme.ComboBoxButtonBackground = c);
+		        AddColorSwatch(panel, "Button Arrow", () => previewTheme.ComboBoxButtonForeground, c => previewTheme.ComboBoxButtonForeground = c);
+		    });
 
-			AddThemeSection(themePanel, "ListView Checkboxes");
-			AddColorSwatch(themePanel, "Box Background", () => previewTheme.CheckBoxBackground, c => previewTheme.CheckBoxBackground = c);
-			AddColorSwatch(themePanel, "Box Border", () => previewTheme.CheckBoxBorder, c => previewTheme.CheckBoxBorder = c);
-			AddColorSwatch(themePanel, "Check Mark", () => previewTheme.CheckBoxCheckMark, c => previewTheme.CheckBoxCheckMark = c);
-			AddColorSwatch(themePanel, "Hover Background", () => previewTheme.CheckBoxHoverBackground, c => previewTheme.CheckBoxHoverBackground = c);
+		    AddThemeGroup(themePanel, "ListView Checkboxes", panel =>
+		    {
+		        AddColorSwatch(panel, "Box Background", () => previewTheme.CheckBoxBackground, c => previewTheme.CheckBoxBackground = c);
+		        AddColorSwatch(panel, "Box Border", () => previewTheme.CheckBoxBorder, c => previewTheme.CheckBoxBorder = c);
+		        AddColorSwatch(panel, "Check Mark", () => previewTheme.CheckBoxCheckMark, c => previewTheme.CheckBoxCheckMark = c);
+		        AddColorSwatch(panel, "Hover Background", () => previewTheme.CheckBoxHoverBackground, c => previewTheme.CheckBoxHoverBackground = c);
+		    });
 
-		    AddThemeSection(themePanel, "List Status Indicators (● icons)");
-		    AddColorSwatch(themePanel, "Unchanged", () => previewTheme.StatusUnchanged, c => previewTheme.StatusUnchanged = c);
-		    AddColorSwatch(themePanel, "Changed", () => previewTheme.StatusChanged, c => previewTheme.StatusChanged = c);
-		    AddColorSwatch(themePanel, "Error", () => previewTheme.StatusError, c => previewTheme.StatusError = c);
-		    AddColorSwatch(themePanel, "New", () => previewTheme.StatusNew, c => previewTheme.StatusNew = c);
-		    AddColorSwatch(themePanel, "Unchecked", () => previewTheme.StatusUnchecked, c => previewTheme.StatusUnchecked = c);
+		    AddThemeGroup(themePanel, "List Status Indicators (● icons)", panel =>
+		    {
+		        AddColorSwatch(panel, "Unchanged", () => previewTheme.StatusUnchanged, c => previewTheme.StatusUnchanged = c);
+		        AddColorSwatch(panel, "Changed", () => previewTheme.StatusChanged, c => previewTheme.StatusChanged = c);
+		        AddColorSwatch(panel, "Error", () => previewTheme.StatusError, c => previewTheme.StatusError = c);
+		        AddColorSwatch(panel, "New", () => previewTheme.StatusNew, c => previewTheme.StatusNew = c);
+		        AddColorSwatch(panel, "Unchecked", () => previewTheme.StatusUnchecked, c => previewTheme.StatusUnchecked = c);
+		    });
 
-		    AddThemeSection(themePanel, "List Cell Status Colors (text color for URL, Hash, etc.)");
-		    AddColorSwatch(themePanel, "OK", () => previewTheme.CellStatusOk, c => previewTheme.CellStatusOk = c);
-		    AddColorSwatch(themePanel, "Changed", () => previewTheme.CellStatusChanged, c => previewTheme.CellStatusChanged = c);
-		    AddColorSwatch(themePanel, "Error", () => previewTheme.CellStatusError, c => previewTheme.CellStatusError = c);
-		    AddColorSwatch(themePanel, "Default", () => previewTheme.CellStatusDefault, c => previewTheme.CellStatusDefault = c);
+		    AddThemeGroup(themePanel, "List Cell Status Colors (text color for URL, Hash, etc.)", panel =>
+		    {
+		        AddColorSwatch(panel, "OK", () => previewTheme.CellStatusOk, c => previewTheme.CellStatusOk = c);
+		        AddColorSwatch(panel, "Changed", () => previewTheme.CellStatusChanged, c => previewTheme.CellStatusChanged = c);
+		        AddColorSwatch(panel, "Error", () => previewTheme.CellStatusError, c => previewTheme.CellStatusError = c);
+		        AddColorSwatch(panel, "Default", () => previewTheme.CellStatusDefault, c => previewTheme.CellStatusDefault = c);
+		    });
 
-		    AddThemeSection(themePanel, "Track Settings Panel");
-		    AddColorSwatch(themePanel, "Panel Background", () => previewTheme.PanelBackground, c => previewTheme.PanelBackground = c);
-		    AddColorSwatch(themePanel, "Panel Foreground", () => previewTheme.PanelForeground, c => previewTheme.PanelForeground = c);
-		    AddColorSwatch(themePanel, "TextBox Background", () => previewTheme.TextBoxBackground, c => previewTheme.TextBoxBackground = c);
-		    AddColorSwatch(themePanel, "TextBox Foreground", () => previewTheme.TextBoxForeground, c => previewTheme.TextBoxForeground = c);
-		    AddColorSwatch(themePanel, "Version Match / Found", () => previewTheme.VersionMatchColor, c => previewTheme.VersionMatchColor = c);
-			AddColorSwatch(themePanel, "Version Mismatch / Not Found", () => previewTheme.VersionMismatchColor, c => previewTheme.VersionMismatchColor = c);
-		    AddColorSwatch(themePanel, "Track Toolbar Background", () => previewTheme.TrackToolbarBackground, c => previewTheme.TrackToolbarBackground = c);
-		    AddColorSwatch(themePanel, "Track Toolbar Foreground", () => previewTheme.TrackToolbarForeground, c => previewTheme.TrackToolbarForeground = c);
+		    AddThemeGroup(themePanel, "Track Settings Panel", panel =>
+		    {
+		        AddColorSwatch(panel, "Panel Background", () => previewTheme.PanelBackground, c => previewTheme.PanelBackground = c);
+		        AddColorSwatch(panel, "Panel Foreground", () => previewTheme.PanelForeground, c => previewTheme.PanelForeground = c);
+		        AddColorSwatch(panel, "TextBox Background", () => previewTheme.TextBoxBackground, c => previewTheme.TextBoxBackground = c);
+		        AddColorSwatch(panel, "TextBox Foreground", () => previewTheme.TextBoxForeground, c => previewTheme.TextBoxForeground = c);
+		        AddColorSwatch(panel, "Version Match / Found", () => previewTheme.VersionMatchColor, c => previewTheme.VersionMatchColor = c);
+		        AddColorSwatch(panel, "Version Mismatch / Not Found", () => previewTheme.VersionMismatchColor, c => previewTheme.VersionMismatchColor = c);
+		        AddColorSwatch(panel, "Track Toolbar Background", () => previewTheme.TrackToolbarBackground, c => previewTheme.TrackToolbarBackground = c);
+		        AddColorSwatch(panel, "Track Toolbar Foreground", () => previewTheme.TrackToolbarForeground, c => previewTheme.TrackToolbarForeground = c);
+		    });
 
-		    AddThemeSection(themePanel, "Tabs");
-		    AddColorSwatch(themePanel, "Tab Bar Background", () => previewTheme.TabBackground, c => previewTheme.TabBackground = c);
-		    AddColorSwatch(themePanel, "Tab Handle Background", () => previewTheme.TabHandleBackground, c => previewTheme.TabHandleBackground = c);
-		    AddColorSwatch(themePanel, "Tab Handle Foreground", () => previewTheme.TabHandleForeground, c => previewTheme.TabHandleForeground = c);
-		    AddColorSwatch(themePanel, "Tab Selected Background", () => previewTheme.TabSelectedBackground, c => previewTheme.TabSelectedBackground = c);
-		    AddColorSwatch(themePanel, "Tab Selected Foreground", () => previewTheme.TabSelectedForeground, c => previewTheme.TabSelectedForeground = c);
-		    AddColorSwatch(themePanel, "Tab Content Foreground", () => previewTheme.TabContentForeground, c => previewTheme.TabContentForeground = c);
+		    AddThemeGroup(themePanel, "Tabs", panel =>
+		    {
+		        AddColorSwatch(panel, "Tab Bar Background", () => previewTheme.TabBackground, c => previewTheme.TabBackground = c);
+		        AddColorSwatch(panel, "Tab Handle Background", () => previewTheme.TabHandleBackground, c => previewTheme.TabHandleBackground = c);
+		        AddColorSwatch(panel, "Tab Handle Foreground", () => previewTheme.TabHandleForeground, c => previewTheme.TabHandleForeground = c);
+		        AddColorSwatch(panel, "Tab Selected Background", () => previewTheme.TabSelectedBackground, c => previewTheme.TabSelectedBackground = c);
+		        AddColorSwatch(panel, "Tab Selected Foreground", () => previewTheme.TabSelectedForeground, c => previewTheme.TabSelectedForeground = c);
+		        AddColorSwatch(panel, "Tab Content Foreground", () => previewTheme.TabContentForeground, c => previewTheme.TabContentForeground = c);
+		    });
 
-		    AddThemeSection(themePanel, "Source View");
-		    AddColorSwatch(themePanel, "Source Background", () => previewTheme.SourceBackground, c => previewTheme.SourceBackground = c);
-		    AddColorSwatch(themePanel, "Start String Color", () => previewTheme.SourceStartStringColor, c => previewTheme.SourceStartStringColor = c);
-		    AddColorSwatch(themePanel, "Info String Color", () => previewTheme.SourceInfoStringColor, c => previewTheme.SourceInfoStringColor = c);
-		    AddColorSwatch(themePanel, "Stop String Color", () => previewTheme.SourceStopStringColor, c => previewTheme.SourceStopStringColor = c);
-		    AddColorSwatch(themePanel, "HTML Tag Color", () => previewTheme.SourceTagColor, c => previewTheme.SourceTagColor = c);
-		    AddColorSwatch(themePanel, "Text Content Color", () => previewTheme.SourceTextColor, c => previewTheme.SourceTextColor = c);
+		    AddThemeGroup(themePanel, "Source View", panel =>
+		    {
+		        AddColorSwatch(panel, "Source Background", () => previewTheme.SourceBackground, c => previewTheme.SourceBackground = c);
+		        AddColorSwatch(panel, "Start String Color", () => previewTheme.SourceStartStringColor, c => previewTheme.SourceStartStringColor = c);
+		        AddColorSwatch(panel, "Info String Color", () => previewTheme.SourceInfoStringColor, c => previewTheme.SourceInfoStringColor = c);
+		        AddColorSwatch(panel, "Stop String Color", () => previewTheme.SourceStopStringColor, c => previewTheme.SourceStopStringColor = c);
+		        AddColorSwatch(panel, "HTML Tag Color", () => previewTheme.SourceTagColor, c => previewTheme.SourceTagColor = c);
+		        AddColorSwatch(panel, "Text Content Color", () => previewTheme.SourceTextColor, c => previewTheme.SourceTextColor = c);
+		    });
 
-		    AddThemeSection(themePanel, "Scrollbars");
-		    AddColorSwatch(themePanel, "Scrollbar Background", () => previewTheme.ScrollBarBackground, c => previewTheme.ScrollBarBackground = c);
-		    AddColorSwatch(themePanel, "Scrollbar Thumb", () => previewTheme.ScrollBarThumb, c => previewTheme.ScrollBarThumb = c);
+		    AddThemeGroup(themePanel, "Scrollbars", panel =>
+		    {
+		        AddColorSwatch(panel, "Scrollbar Background", () => previewTheme.ScrollBarBackground, c => previewTheme.ScrollBarBackground = c);
+		        AddColorSwatch(panel, "Scrollbar Thumb", () => previewTheme.ScrollBarThumb, c => previewTheme.ScrollBarThumb = c);
+		    });
 
 		    // ---- Button handlers ----
 
@@ -4645,6 +4935,7 @@ namespace PublishedAppTracker
 		    // Initialize preview theme
 		    previewTheme = currentTheme.Clone();
 
+		    ApplyThemeToGroupHeaders(currentTheme);
 		    return themeTab;
 		}
 
@@ -4705,20 +4996,119 @@ namespace PublishedAppTracker
 		        ThemeAllComboBoxArrows(child, arrowBrush);
 		    }
 		}
-		
-		private void AddThemeSection(StackPanel parent, string title)
+
+		private void AddThemeGroup(StackPanel parent, string title, Action<StackPanel> buildSwatches)
 		{
+		    Border border = new Border();
+		    border.BorderBrush = Brushes.Gray;
+		    border.BorderThickness = new Thickness(1);
+		    border.CornerRadius = new CornerRadius(4);
+		    border.Padding = new Thickness(10);
+		    border.Margin = new Thickness(0, 0, 0, 8);
+		    border.Tag = "ThemeGroup";
+
+		    StackPanel groupPanel = new StackPanel();
+
 		    TextBlock header = new TextBlock();
 		    header.Text = title;
 		    header.FontWeight = FontWeights.Bold;
 		    header.FontSize = 12;
-		    header.Margin = new Thickness(0, 12, 0, 4);
-		    parent.Children.Add(header);
+		    header.Margin = new Thickness(0, 0, 0, 6);
+		    header.Tag = "ThemeGroupHeader";
+		    header.Foreground = new SolidColorBrush(currentTheme.TabSelectedForeground);
+		    groupPanel.Children.Add(header);
 
-		    Separator sep = new Separator();
-		    sep.Margin = new Thickness(0, 0, 0, 4);
-		    parent.Children.Add(sep);
+		    buildSwatches(groupPanel);
+
+		    border.Child = groupPanel;
+		    parent.Children.Add(border);
 		}
+
+		private void ApplyThemeToGroupHeaders(ThemeSettings theme)
+		{
+		    SolidColorBrush foreground = new SolidColorBrush(theme.TabSelectedForeground);
+		    SolidColorBrush borderBrush = new SolidColorBrush(theme.SplitterColor);
+
+		    // Scan all tabs that have a ScrollViewer with bordered groups
+		    foreach (TabItem ti in rightTabs.Items)
+		    {
+		        DockPanel dp = ti.Content as DockPanel;
+		        if (dp == null) continue;
+
+		        foreach (object child in dp.Children)
+		        {
+		            ScrollViewer sv = child as ScrollViewer;
+		            if (sv == null) continue;
+
+		            StackPanel sp = sv.Content as StackPanel;
+		            if (sp == null) continue;
+
+		            ApplyGroupHeadersToPanel(sp, foreground, borderBrush);
+		        }
+		    }
+		}
+
+		private void ApplyGroupHeadersToPanel(Panel parent, SolidColorBrush foreground, SolidColorBrush borderBrush)
+		{
+		    foreach (object child in parent.Children)
+		    {
+		        Border border = child as Border;
+		        if (border == null) continue;
+
+		        border.BorderBrush = borderBrush;
+
+		        StackPanel inner = border.Child as StackPanel;
+		        if (inner == null) continue;
+
+		        foreach (object item in inner.Children)
+		        {
+		            TextBlock tb = item as TextBlock;
+		            if (tb != null && tb.Tag as string == "ThemeGroupHeader")
+		            {
+		                tb.Foreground = foreground;
+		            }
+		        }
+		    }
+		}
+
+/// Can be removed once confirmed not needed...
+// 		private void AddThemeSection(StackPanel parent, string title)
+// 		{
+// 		    TextBlock header = new TextBlock();
+// 		    header.Text = title;
+// 		    header.FontWeight = FontWeights.Bold;
+// 		    header.FontSize = 12;
+// 		    header.Margin = new Thickness(0, 12, 0, 4);
+// 		    parent.Children.Add(header);
+
+// 		    Separator sep = new Separator();
+// 		    sep.Margin = new Thickness(0, 0, 0, 4);
+// 		    parent.Children.Add(sep);
+// 		}
+
+// 		private void ThemeGroupHeaders(Panel parent, SolidColorBrush foreground, SolidColorBrush borderBrush)
+// 		{
+// 		    foreach (object child in parent.Children)
+// 		    {
+// 		        Border border = child as Border;
+// 		        if (border != null && border.Tag as string == "ThemeGroup")
+// 		        {
+// 		            border.BorderBrush = borderBrush;
+// 		            StackPanel sp = border.Child as StackPanel;
+// 		            if (sp != null)
+// 		            {
+// 		                foreach (object item in sp.Children)
+// 		                {
+// 		                    TextBlock tb = item as TextBlock;
+// 		                    if (tb != null && tb.Tag as string == "ThemeGroupHeader")
+// 		                    {
+// 		                        tb.Foreground = foreground;
+// 		                    }
+// 		                }
+// 		            }
+// 		        }
+// 		    }
+// 		}
 
 		private void AddColorSwatch(StackPanel parent, string label,
 		    Func<Color> getter, Action<Color> setter)
@@ -4818,6 +5208,10 @@ namespace PublishedAppTracker
 		                }
 		            }
 		        }
+		    }
+		    else if (element is Border border && border.Child != null)
+		    {
+		        RefreshSwatchesRecursive(border.Child);
 		    }
 		    else if (element is StackPanel sp)
 		    {
@@ -5397,6 +5791,9 @@ namespace PublishedAppTracker
 			    rightTabs.Foreground = tabFg;
 			}
 
+			// Fix foreground for closable tab headers
+			FixClosableTabForegrounds();
+
 			// Apply content foreground to each tab's content panel,
 			// and explicitly theme any toolbars inside tabs
 			SolidColorBrush tabTbBg = new SolidColorBrush(theme.ToolbarBackground);
@@ -5420,6 +5817,9 @@ namespace PublishedAppTracker
 			    }
 			}
 
+			// Theme group headers on the Theme tab (if it exists yet)
+			ApplyThemeToGroupHeaders(theme);
+
 			// ---- App Settings editor path field ----
 			editEditorPath.Background = new SolidColorBrush(theme.TextBoxBackground);
 			editEditorPath.Foreground = new SolidColorBrush(theme.TextBoxForeground);
@@ -5433,6 +5833,15 @@ namespace PublishedAppTracker
 				editSyMenuPath.Foreground = new SolidColorBrush(theme.TextBoxForeground);
 				editSyMenuPath.CaretBrush = new SolidColorBrush(theme.TextBoxForeground);
 				editSyMenuPath.BorderBrush = new SolidColorBrush(theme.TabBackground);
+			}
+
+			// ---- App Settings SPS publisher filter field ----
+			if (txtSettingsPublisherFilter != null)
+			{
+				txtSettingsPublisherFilter.Background = new SolidColorBrush(theme.TextBoxBackground);
+				txtSettingsPublisherFilter.Foreground = new SolidColorBrush(theme.TextBoxForeground);
+				txtSettingsPublisherFilter.CaretBrush = new SolidColorBrush(theme.TextBoxForeground);
+				txtSettingsPublisherFilter.BorderBrush = new SolidColorBrush(theme.TabBackground);
 			}
 
 		    // ---- Source View ----
@@ -6305,7 +6714,7 @@ namespace PublishedAppTracker
 
 		    // Checkbox column
 		    GridViewColumn checkCol = new GridViewColumn();
-		    checkCol.Width = 30;
+		    checkCol.Width = 26;
 		    FrameworkElementFactory headerCheckbox = new FrameworkElementFactory(typeof(CheckBox));
 		    headerCheckbox.AddHandler(CheckBox.ClickEvent, new RoutedEventHandler(SelectAll_Click));
 		    checkCol.Header = new GridViewColumnHeader();
@@ -6753,6 +7162,180 @@ namespace PublishedAppTracker
             Close();
         }
 
+        private FrameworkElement CreateClosableTabHeader(string text, TabItem tab)
+        {
+            StackPanel header = new StackPanel();
+            header.Orientation = Orientation.Horizontal;
+
+            TextBlock label = new TextBlock();
+            label.Text = text;
+            label.VerticalAlignment = VerticalAlignment.Center;
+            header.Children.Add(label);
+
+            Button closeBtn = new Button();
+            closeBtn.Content = "✕";
+            closeBtn.FontSize = 9;
+            closeBtn.Width = 16;
+            closeBtn.Height = 16;
+            closeBtn.Padding = new Thickness(0);
+            closeBtn.Margin = new Thickness(6, 0, 0, 0);
+            closeBtn.VerticalAlignment = VerticalAlignment.Center;
+            closeBtn.VerticalContentAlignment = VerticalAlignment.Center;
+            closeBtn.HorizontalContentAlignment = HorizontalAlignment.Center;
+            closeBtn.ToolTip = "Close tab";
+            closeBtn.Cursor = System.Windows.Input.Cursors.Hand;
+
+            // Remove default button chrome so it blends with the tab header
+            closeBtn.Template = CreateCloseButtonTemplate();
+
+            closeBtn.Click += (s, ev) =>
+            {
+                rightTabs.Items.Remove(tab);
+                if (rightTabs.Items.Count > 0)
+                    rightTabs.SelectedIndex = 0;
+            };
+            header.Children.Add(closeBtn);
+
+            return header;
+        }
+
+        private void FixClosableTabForegrounds()
+        {
+            foreach (TabItem ti in rightTabs.Items)
+            {
+                if (ti.Header is StackPanel sp)
+                {
+                    foreach (var child in sp.Children)
+                    {
+                        if (child is TextBlock tb)
+                            tb.SetBinding(TextBlock.ForegroundProperty,
+                                new System.Windows.Data.Binding("(TextElement.Foreground)")
+                                {
+                                    RelativeSource = new System.Windows.Data.RelativeSource(
+                                        System.Windows.Data.RelativeSourceMode.FindAncestor,
+                                        typeof(ContentPresenter), 1)
+                                });
+                    }
+                }
+            }
+        }
+
+        private ControlTemplate CreateCloseButtonTemplate()
+        {
+            ControlTemplate template = new ControlTemplate(typeof(Button));
+
+            FrameworkElementFactory border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(2));
+            border.SetValue(Border.PaddingProperty, new Thickness(0));
+            border.Name = "border";
+
+            FrameworkElementFactory presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            border.AppendChild(presenter);
+
+            template.VisualTree = border;
+
+            // Hover: light semi-transparent background
+            Trigger mouseOver = new Trigger();
+            mouseOver.Property = UIElement.IsMouseOverProperty;
+            mouseOver.Value = true;
+            mouseOver.Setters.Add(new Setter(Border.BackgroundProperty,
+                new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)), "border"));
+            template.Triggers.Add(mouseOver);
+
+            // Pressed: slightly darker
+            Trigger pressed = new Trigger();
+            pressed.Property = System.Windows.Controls.Primitives.ButtonBase.IsPressedProperty;
+            pressed.Value = true;
+            pressed.Setters.Add(new Setter(Border.BackgroundProperty,
+                new SolidColorBrush(Color.FromArgb(100, 128, 128, 128)), "border"));
+            template.Triggers.Add(pressed);
+
+            return template;
+        }
+
+        private bool IsSpsAvailable()
+        {
+            return !string.IsNullOrEmpty(windowSettings.SpsSuiteRootPath);
+        }
+
+        private void UpdateSpsVisibility()
+        {
+            Visibility vis = IsSpsAvailable()
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            // Menu items
+            menuOpenSpsBuilder.Visibility = vis;
+            menuSelectSuites.Visibility = vis;
+            menuToolsSpsSeparator.Visibility = vis;
+
+            // Toolbar button
+            if (btnToolbarReBuild != null)
+                btnToolbarReBuild.Visibility = vis;
+        }
+
+        private void OpenNewSpsBuilder_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsSpsAvailable())
+            {
+                MessageBox.Show("SPSSuite path is not set. Please set it in Application Settings.",
+                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string builderPath = Path.Combine(windowSettings.SpsSuiteRootPath,
+                "SyMenuSuite", "SPS_Builder_sps", "SPSBuilder.exe");
+
+            if (!File.Exists(builderPath))
+            {
+                MessageBox.Show("SPSBuilder not found at:\n" + builderPath,
+                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = builderPath,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to open SPSBuilder:\n" + ex.Message,
+                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void UpdateSpsSettingsEnabled()
+        {
+            bool enabled = IsSpsAvailable();
+            if (btnSpsSelectSuites != null)
+            {
+                btnSpsSelectSuites.IsEnabled = enabled;
+                btnSpsSelectSuites.Opacity = enabled ? 1.0 : 0.4;
+            }
+            if (btnSpsScanCache != null)
+            {
+                btnSpsScanCache.IsEnabled = enabled;
+                btnSpsScanCache.Opacity = enabled ? 1.0 : 0.4;
+            }
+            if (spsPublisherSettingsPanel != null)
+            {
+                spsPublisherSettingsPanel.IsEnabled = enabled;
+                spsPublisherSettingsPanel.Opacity = enabled ? 1.0 : 0.4;
+            }
+            if (txtSettingsPublisherFilter != null)
+            {
+                txtSettingsPublisherFilter.IsEnabled = enabled;
+                txtSettingsPublisherFilter.Opacity = enabled ? 1.0 : 0.4;
+            }
+        }
+
         // ============================
         // Toolbar Handlers
         // ============================
@@ -6765,7 +7348,7 @@ namespace PublishedAppTracker
 		    btn.FontFamily = new FontFamily("Segoe Fluent Icons");
 		    btn.FontSize = 16;
 		    btn.Padding = new Thickness(6, 2, 6, 2);
-		    btn.Margin = new Thickness(1, 2, 1, 2);
+		    btn.Margin = new Thickness(2, 2, 2, 2);
 		    btn.ToolTip = tooltip;
 		    if (clickHandler != null)
 		        btn.Click += clickHandler;
@@ -6944,7 +7527,9 @@ namespace PublishedAppTracker
                 {
                     string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
                     string xmlPath;
-                    string publisherFilter = txtPublisherFilter.Text.Trim();
+                    string publisherFilter = txtSettingsPublisherFilter != null
+                        ? txtSettingsPublisherFilter.Text.Trim()
+                        : "";
                     string suitePath = "";
                     List<string> savedSuites = windowSettings.SelectedSuites;
 
@@ -7042,7 +7627,7 @@ namespace PublishedAppTracker
 
         private void ReBuild_Click(object sender, RoutedEventArgs e)
         {
-        	txtSearchCount.Text = "";
+        	if (txtSettingsSearchCount != null) txtSettingsSearchCount.Text = "";
             // Step 1: Get the SPSSuite root path (saved in settings or ask user)
             string spsSuiteRoot = windowSettings.SpsSuiteRootPath;
 
@@ -7075,6 +7660,8 @@ namespace PublishedAppTracker
                     // Save to settings
                     windowSettings.SpsSuiteRootPath = spsSuiteRoot;
                     windowSettings.Save(windowSettingsPath);
+                    UpdateSpsVisibility();
+                    UpdateSpsSettingsEnabled();
                 }
                 else
                 {
@@ -7191,7 +7778,9 @@ namespace PublishedAppTracker
             }
 
             // Step 5: Publisher filter
-            string publisherFilter = txtPublisherFilter.Text.Trim();
+            string publisherFilter = txtSettingsPublisherFilter != null
+                ? txtSettingsPublisherFilter.Text.Trim()
+                : "";
 
             // Confirm
             string suiteNames = string.Join(", ", windowSettings.SelectedSuites);
@@ -7390,7 +7979,7 @@ namespace PublishedAppTracker
             {
                 statusProgress.Value = 0;
                 statusFile.Text = "ReBuild done: " + currentItems.Count + " entries from " + selectedSuites.Count + " suite(s). Save to keep changes.";
-                txtSearchCount.Text = currentItems.Count + " items";
+                if (txtSettingsSearchCount != null) txtSettingsSearchCount.Text = currentItems.Count + " items";
             }
         }
 
@@ -8056,7 +8645,8 @@ namespace PublishedAppTracker
 
                     CheckResult result = selected.ApplyCheck(currentSource, downloadBytes);
 
-                    selected.SaveToFile();
+					if (!string.IsNullOrEmpty(selected.FilePath))
+						selected.SaveToFile();
 
                     // Refresh list but preserve selection
                     int selectedIndex = currentItems.IndexOf(selected);
@@ -8127,7 +8717,8 @@ namespace PublishedAppTracker
                             selected.Version = editVersion.Text;
 
                             CheckResult result = selected.ApplyCheck(currentSource, downloadBytes);
-                            selected.SaveToFile();
+                            if (!string.IsNullOrEmpty(selected.FilePath))
+                                selected.SaveToFile();
 
                             int selectedIndex = currentItems.IndexOf(selected);
                             suppressAutoDownload = true;
@@ -8160,7 +8751,8 @@ namespace PublishedAppTracker
                         {
                             selected.TrackStatus = "error";
                             selected.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                            selected.SaveToFile();
+                            if (!string.IsNullOrEmpty(selected.FilePath))
+                                selected.SaveToFile();
                             itemList.ItemsSource = null;
                             itemList.ItemsSource = currentItems;
                         }
@@ -8177,7 +8769,8 @@ namespace PublishedAppTracker
                     {
                         selected.TrackStatus = "error";
                         selected.LastChecked = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                        selected.SaveToFile();
+                            if (!string.IsNullOrEmpty(selected.FilePath))
+                                selected.SaveToFile();
                         itemList.ItemsSource = null;
                         itemList.ItemsSource = currentItems;
                     }

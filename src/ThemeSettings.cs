@@ -239,6 +239,8 @@ namespace PublishedAppTracker
             t.MenuForeground = Color.FromRgb(20, 20, 60);
             t.ToolbarBackground = Color.FromRgb(220, 235, 255);
             t.ToolbarForeground = Color.FromRgb(20, 20, 60);
+            t.MainToolbarBackground = Color.FromRgb(210, 230, 255);
+            t.MainToolbarForeground = Color.FromRgb(20, 20, 60);
 
             t.StatusBarBackground = Color.FromRgb(200, 220, 250);
             t.StatusBarForeground = Color.FromRgb(20, 20, 60);
@@ -290,11 +292,16 @@ namespace PublishedAppTracker
             t.TabForeground = Color.FromRgb(20, 40, 80);
             t.TabSelectedBackground = Color.FromRgb(255, 255, 255);
             t.TabSelectedForeground = Color.FromRgb(20, 30, 60);
+            t.TabHandleBackground = Color.FromRgb(200, 220, 250);
+            t.TabHandleForeground = Color.FromRgb(40, 60, 120);
             t.TabContentForeground = Color.FromRgb(20, 40, 80);
 
             t.SourceBackground = Color.FromRgb(250, 252, 255);
             t.SourceTagColor = Color.FromRgb(40, 80, 180);
             t.SourceTextColor = Color.FromRgb(20, 40, 80);
+            t.SourceStartStringColor = Color.FromRgb(0, 150, 0);
+            t.SourceInfoStringColor = Color.FromRgb(180, 130, 0);
+            t.SourceStopStringColor = Color.FromRgb(200, 40, 40);
 
             t.ButtonBackground = Color.FromRgb(190, 215, 250);
             t.ButtonForeground = Color.FromRgb(20, 30, 60);

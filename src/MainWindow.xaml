@@ -20,17 +20,17 @@
             </MenuItem>
             <!-- REMOVE:  IsEnabled="False" Opacity="0.4" TO ENABLE ITEMS -->
             <MenuItem Header="_View">
-                <MenuItem Header="Columns" IsEnabled="False" Opacity="0.4" />
+                <MenuItem Header="Settings" x:Name="menuViewSettings" />
+                <MenuItem Header="Theme..." x:Name="menuViewTheme" />
             </MenuItem>
-            <MenuItem Header="_Tools">
-                <MenuItem Header="Open SPSBuilder" IsEnabled="False" Opacity="0.4" />
-                <Separator />
-                <MenuItem Header="Install/Update uBlock Origin" Click="InstallUBlock_Click" />
-                <MenuItem Header="List Extensions" Click="ListExtensions_Click" />
-            </MenuItem>
+			<MenuItem Header="_Tools">
+			    <MenuItem Header="Open new SPSBuilder" x:Name="menuOpenSpsBuilder" Click="OpenNewSpsBuilder_Click" Visibility="Collapsed" />
+			    <MenuItem Header="Select Suites..." x:Name="menuSelectSuites" Click="SelectSuites_Click" Visibility="Collapsed" />
+			    <Separator x:Name="menuToolsSpsSeparator" Visibility="Collapsed" />
+			    <MenuItem Header="Install/Update uBlock Origin" Click="InstallUBlock_Click" />
+			    <MenuItem Header="List Extensions" Click="ListExtensions_Click" />
+			</MenuItem>
             <MenuItem Header="_Config">
-                <MenuItem Header="Theme..." IsEnabled="False" Opacity="0.4" />
-                <MenuItem Header="Select Suites..." IsEnabled="False" Opacity="0.4" />
             </MenuItem>
         </Menu>
 
@@ -67,29 +67,17 @@
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
 		                Padding="7,4" Margin="2,2,2,2" ToolTip="Switch to Horizontal Layout" />
 		        <Separator />
-		        <Button x:Name="btnCheckSelected" Content="&#xe773;" Click="CheckSelected_Click"
+		        <Button x:Name="btnCheckSelected" Content="&#xe930;" Click="CheckSelected_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
 		                Padding="7,4" Margin="2,2,2,2" ToolTip="Check selected tracks in current category" />
-		        <Button x:Name="btnCheckAll" Content="&#xe773;" Click="CheckAll_Click"
+		        <Button x:Name="btnCheckAll" Content="&#xec61;" Click="CheckAll_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
 		                Padding="7,4" Margin="2,2,2,2" ToolTip="Check all tracks in current category" />
-                <Separator />
-                <Button x:Name="btnSelectSuites" Content="&#xE71D;" Click="SelectSuites_Click"
-                        FontFamily="Segoe Fluent Icons" FontSize="17"
-                        Padding="7,4" Margin="2,2,2,2"
-                        ToolTip="Select SPS Suites" />
-				<StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="4,0,4,0">
-				    <TextBlock Text="Publisher:" />
-				    <TextBlock x:Name="txtSearchCount" Text="" FontSize="11" />
-				</StackPanel>
-                <TextBox x:Name="txtPublisherFilter" Width="150" VerticalAlignment="Center"
-                         Margin="2,2,2,2" ToolTip="Filter by SPS publisher name (empty = all)"
-                         KeyDown="txtPublisherFilter_KeyDown" />
-                <Button x:Name="btnReBuild" Content="&#xE777;" Click="ReBuild_Click"
+		        <Separator />
+                <Button x:Name="btnToolbarReBuild" Content="&#xE777;" Click="ReBuild_Click"
                         FontFamily="Segoe Fluent Icons" FontSize="17"
                         Padding="7,4" Margin="2,2,2,2"
                         ToolTip="Scan SyMenu SPS cache and rebuild category from SPS data" />
-		        <Separator />
 		        <Button x:Name="btnAbout" Content="&#xE946;" Click="About_Click"
 		                FontFamily="Segoe Fluent Icons" FontSize="17"
 		                Padding="7,4" Margin="2,2,2,2" ToolTip="About" />

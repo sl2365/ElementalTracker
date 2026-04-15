@@ -57,6 +57,10 @@ namespace PublishedAppTracker
         public bool TrackSettingsCollapsed { get; set; } = false;
         public List<string> SelectedSuites { get; set; } = new List<string>();
 
+		// Tab open/closed state
+        public bool TabThemeVisible { get; set; } = true;
+        public bool TabAppSettingsVisible { get; set; } = true;
+
         public static List<ColumnSetting> GetDefaultColumns()
         {
             List<ColumnSetting> defaults = new List<ColumnSetting>();
@@ -119,6 +123,8 @@ namespace PublishedAppTracker
                     writer.WriteElementString("Suite", suite);
                 }
                 writer.WriteEndElement();
+                writer.WriteElementString("TabThemeVisible", TabThemeVisible.ToString());
+                writer.WriteElementString("TabAppSettingsVisible", TabAppSettingsVisible.ToString());
                 writer.WriteElementString("ToolbarPosition", ToolbarPosition ?? "Top");
                 writer.WriteElementString("SearchEngine", SearchEngine ?? "DuckDuckGo");
 
@@ -176,6 +182,8 @@ namespace PublishedAppTracker
                 ws.ActiveThemePath = GetNodeText(root, "ActiveThemePath");
                 ws.SpsSuiteRootPath = GetNodeText(root, "SpsSuiteRootPath");
                 ws.TrackSettingsCollapsed = ParseBool(root, "TrackSettingsCollapsed", ws.TrackSettingsCollapsed);
+                ws.TabThemeVisible = ParseBool(root, "TabThemeVisible", true);
+                ws.TabAppSettingsVisible = ParseBool(root, "TabAppSettingsVisible", true);
                 // Load selected suites
                 XmlNode suitesNode = root.SelectSingleNode("SelectedSuites");
                 if (suitesNode != null)
