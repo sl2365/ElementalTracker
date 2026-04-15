@@ -65,8 +65,6 @@ Major upgrade — now compiled as **x64**.
 - Added browsing functions to WebView
 
 ### Todo ###
-- Add full SyMenu SPS support
-- Sort out MenuBar items not working
 - Code cleanup
 - Possible performance enhancements
 
