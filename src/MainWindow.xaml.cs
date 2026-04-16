@@ -15,7 +15,7 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-namespace PublishedAppTracker
+namespace ElementalTracker
 {
     public partial class MainWindow : Window
     {
@@ -177,7 +177,7 @@ namespace PublishedAppTracker
             var attr = (System.Reflection.AssemblyInformationalVersionAttribute)
                 Attribute.GetCustomAttribute(asm, 
                     typeof(System.Reflection.AssemblyInformationalVersionAttribute));
-            this.Title = "Published App Tracker v" + (attr != null ? attr.InformationalVersion : "7");
+            this.Title = AppInfo.AppName + " v" + (attr != null ? attr.InformationalVersion : "7");
 
             appDir = Path.GetDirectoryName(
                 System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
@@ -322,7 +322,7 @@ namespace PublishedAppTracker
                 {
                     MessageBoxResult result = MessageBox.Show(
                         "You have unsaved changes.\n\nDo you want to save before closing?",
-                        "PAT v7 — Unsaved Changes",
+                        AppInfo.ShortName + " — Unsaved Changes",
                         MessageBoxButton.YesNoCancel,
                         MessageBoxImage.Warning);
 
@@ -2264,7 +2264,7 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrWhiteSpace(newName))
             {
-                MessageBox.Show("Invalid folder name.", "PAT v7",
+                MessageBox.Show("Invalid folder name.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -2274,7 +2274,7 @@ namespace PublishedAppTracker
             if (Directory.Exists(newPath))
             {
                 MessageBox.Show("Category '" + newName + "' already exists.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -2295,7 +2295,7 @@ namespace PublishedAppTracker
             catch (Exception ex)
             {
                 MessageBox.Show("Error creating category: " + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -2305,7 +2305,7 @@ namespace PublishedAppTracker
 
             if (selected == null)
             {
-                MessageBox.Show("No category selected.", "PAT v7",
+                MessageBox.Show("No category selected.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -2343,7 +2343,7 @@ namespace PublishedAppTracker
                 catch (Exception ex)
                 {
                     MessageBox.Show("Error deleting category: " + ex.Message,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -2391,7 +2391,7 @@ namespace PublishedAppTracker
                 MessageBoxResult result = MessageBox.Show(
                     "You have unsaved changes in '" + Path.GetFileName(currentCategoryPath) + "'.\n\n" +
                     "Do you want to save before switching?",
-                    "PAT v7 — Unsaved Changes",
+                    AppInfo.ShortName + " — Unsaved Changes",
                     MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
 
                 if (result == MessageBoxResult.Yes)
@@ -2531,21 +2531,63 @@ namespace PublishedAppTracker
             MessageBoxResult result = MessageBox.Show(
                 "Track '" + currentTrackItem.TrackName + "' has unsaved changes.\n\n" +
                 "Save before switching?",
-                "PAT v7",
+                AppInfo.ShortName,
                 MessageBoxButton.YesNoCancel,
                 MessageBoxImage.Warning);
 
-            if (result == MessageBoxResult.Yes)
-            {
-                // Save current track
-                SaveCurrentTrackFields();
-                currentTrackItem.SaveToFile();
-                ClearDirty();
-                statusFile.Text = "Saved: " + currentTrackItem.TrackName;
+			if (result == MessageBoxResult.Yes)
+			{
+			    SaveCurrentTrackFields();
 
-                // Now switch to the clicked item
-                itemList.SelectedItem = clickedItem;
-            }
+			    // Check if this is an SPS category — save as XML instead of individual .track
+			    bool isSpsCategory = false;
+			    if (!string.IsNullOrEmpty(currentCategoryPath))
+			    {
+			        if (Directory.GetFiles(currentCategoryPath, "*.xml").Length > 0)
+			            isSpsCategory = true;
+			        else if (currentItems.Count > 0 && string.IsNullOrEmpty(currentItems[0].FilePath))
+			            isSpsCategory = true;
+			    }
+
+			    if (isSpsCategory)
+			    {
+			        string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
+			        string xmlPath;
+			        string publisherFilter = txtSettingsPublisherFilter != null
+			            ? txtSettingsPublisherFilter.Text.Trim()
+			            : "";
+			        string suitePath = "";
+			        List<string> savedSuites = windowSettings.SelectedSuites;
+
+			        if (xmlFiles.Length > 0)
+			        {
+			            xmlPath = xmlFiles[0];
+			            string existingPf, existingSp;
+			            List<string> existingSuites;
+			            TrackItem.LoadSpsListFromFile(xmlPath, out existingPf, out existingSp, out existingSuites);
+			            if (!string.IsNullOrEmpty(existingSp))
+			                suitePath = existingSp;
+			            if (existingSuites.Count > 0)
+			                savedSuites = existingSuites;
+			        }
+			        else
+			        {
+			            string folderName = Path.GetFileName(currentCategoryPath);
+			            xmlPath = Path.Combine(currentCategoryPath, folderName + ".xml");
+			        }
+
+			        TrackItem.SaveSpsListToFile(xmlPath, currentItems.ToList(), publisherFilter, suitePath, savedSuites);
+			    }
+			    else
+			    {
+			        currentTrackItem.SaveToFile();
+			    }
+
+			    ClearDirty();
+			    statusFile.Text = "Saved: " + currentTrackItem.TrackName;
+
+			    itemList.SelectedItem = clickedItem;
+			}
             else if (result == MessageBoxResult.No)
             {
                 // Discard changes — reload original values from file
@@ -2780,7 +2822,7 @@ namespace PublishedAppTracker
             if (toCheck.Count == 0)
             {
                 MessageBox.Show("No tracks selected. Use the checkboxes to select tracks.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -2792,7 +2834,7 @@ namespace PublishedAppTracker
             if (currentItems.Count == 0)
             {
                 MessageBox.Show("No tracks in current category.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -3058,7 +3100,7 @@ namespace PublishedAppTracker
                 catch (Exception ex)
                 {
                     MessageBox.Show("Error saving SPS check results: " + ex.Message,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
 
@@ -3411,7 +3453,7 @@ namespace PublishedAppTracker
 
             if (selected == null)
             {
-                MessageBox.Show("No track selected.", "PAT v7",
+                MessageBox.Show("No track selected.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -3419,7 +3461,7 @@ namespace PublishedAppTracker
             if (!File.Exists(selected.FilePath))
             {
                 MessageBox.Show("Track file not found:\n" + selected.FilePath,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -3437,7 +3479,7 @@ namespace PublishedAppTracker
                 catch (Exception ex)
                 {
                     MessageBox.Show("Error opening file:\n" + ex.Message,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                 }
                 return;
             }
@@ -3453,7 +3495,7 @@ namespace PublishedAppTracker
             {
                 MessageBox.Show("Editor not found:\n" + resolvedPath +
                     "\n\nSet the editor path in App Settings, or leave blank to use the system default.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -3471,7 +3513,7 @@ namespace PublishedAppTracker
             catch (Exception ex)
             {
                 MessageBox.Show("Error launching editor:\n" + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -3479,7 +3521,7 @@ namespace PublishedAppTracker
 		{
 		    if (currentTrackItem == null)
 		    {
-		        MessageBox.Show("No track selected.", "PAT v7",
+		        MessageBox.Show("No track selected.", AppInfo.ShortName,
 		            MessageBoxButton.OK, MessageBoxImage.Warning);
 		        return;
 		    }
@@ -3488,7 +3530,7 @@ namespace PublishedAppTracker
 		    if (string.IsNullOrEmpty(spsRoot) || !Directory.Exists(spsRoot))
 		    {
 		        MessageBox.Show("SPSSuite path is not set.\n\nSet it in App Settings first.",
-		            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+		            AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
 		        return;
 		    }
 
@@ -3496,7 +3538,7 @@ namespace PublishedAppTracker
 		    if (!File.Exists(builderPath))
 		    {
 		        MessageBox.Show("SPSBuilder.exe not found at:\n" + builderPath,
-		            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+		            AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
 		        return;
 		    }
 
@@ -3508,7 +3550,7 @@ namespace PublishedAppTracker
 		        if (string.IsNullOrEmpty(suiteName) || string.IsNullOrEmpty(spsFileName))
 		        {
 		            MessageBox.Show("No SPS file information for this track.\n\nTry rebuilding the category first.",
-		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+		                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
 		            return;
 		        }
 
@@ -3517,7 +3559,7 @@ namespace PublishedAppTracker
 		        if (!File.Exists(spsFile))
 		        {
 		            MessageBox.Show("SPS file not found:\n" + spsFile,
-		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+		                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
 		            return;
 		        }
 
@@ -3527,7 +3569,7 @@ namespace PublishedAppTracker
 		    catch (Exception ex)
 		    {
 		        MessageBox.Show("Error launching SPS Builder: " + ex.Message,
-		            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+		            AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
 		    }
 		}
 
@@ -3639,7 +3681,7 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrWhiteSpace(newName))
             {
-                MessageBox.Show("Track Name cannot be empty.", "PAT v7",
+                MessageBox.Show("Track Name cannot be empty.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -3680,7 +3722,7 @@ namespace PublishedAppTracker
                     if (File.Exists(newPath) && newPath != selected.FilePath)
                     {
                         MessageBox.Show("A track file with that name already exists.",
-                            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
 
@@ -3730,7 +3772,7 @@ namespace PublishedAppTracker
             catch (Exception ex)
             {
                 MessageBox.Show("Error saving track: " + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -3740,7 +3782,7 @@ namespace PublishedAppTracker
 
             if (selected == null)
             {
-                MessageBox.Show("No track selected.", "PAT v7",
+                MessageBox.Show("No track selected.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -3805,7 +3847,7 @@ namespace PublishedAppTracker
                     suppressAutoDownload = false;
                     isLoadingFields = false;
                     MessageBox.Show("Error deleting track: " + ex.Message,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -3820,7 +3862,7 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrEmpty(folderPath))
             {
-                MessageBox.Show("Please select a category first.", "PAT v7",
+                MessageBox.Show("Please select a category first.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -3847,7 +3889,7 @@ namespace PublishedAppTracker
                 MessageBoxResult overwrite = MessageBox.Show(
                     "Track file '" + safeName + ".track' already exists.\n\n" +
                     "Do you want to overwrite it?",
-                    "PAT v7", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    AppInfo.ShortName, MessageBoxButton.YesNo, MessageBoxImage.Question);
 
                 if (overwrite != MessageBoxResult.Yes)
                     return;
@@ -3876,7 +3918,7 @@ namespace PublishedAppTracker
             catch (Exception ex)
             {
                 MessageBox.Show("Error creating track: " + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -4024,7 +4066,7 @@ namespace PublishedAppTracker
                     MessageBox.Show(
                         "Download URL contains a {VERSION} placeholder but the Version field is empty.\n\n" +
                         "Please update the version first.",
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                     return null;
                 }
 
@@ -4042,7 +4084,7 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrWhiteSpace(rawUrl))
             {
-                MessageBox.Show("No Download URL specified.", "PAT v7",
+                MessageBox.Show("No Download URL specified.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -4122,7 +4164,7 @@ namespace PublishedAppTracker
             catch (Exception ex)
             {
                 statusFile.Text = "Download failed.";
-                MessageBox.Show("Download failed:\n\n" + ex.Message, "PAT v7",
+                MessageBox.Show("Download failed:\n\n" + ex.Message, AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -4800,7 +4842,7 @@ namespace PublishedAppTracker
 
 			    if (string.IsNullOrWhiteSpace(safeName))
 			    {
-			        MessageBox.Show("Invalid theme name.", "PAT v7",
+			        MessageBox.Show("Invalid theme name.", AppInfo.ShortName,
 			            MessageBoxButton.OK, MessageBoxImage.Warning);
 			        return;
 			    }
@@ -4829,7 +4871,7 @@ namespace PublishedAppTracker
 
 			    if (string.IsNullOrWhiteSpace(safeName))
 			    {
-			        MessageBox.Show("Invalid theme name.", "PAT v7",
+			        MessageBox.Show("Invalid theme name.", AppInfo.ShortName,
 			            MessageBoxButton.OK, MessageBoxImage.Warning);
 			        return;
 			    }
@@ -4841,7 +4883,7 @@ namespace PublishedAppTracker
 			    {
 			        MessageBoxResult overwrite = MessageBox.Show(
 			            "Theme file '" + safeName + ".thm' already exists.\nOverwrite?",
-			            "PAT v7", MessageBoxButton.YesNo, MessageBoxImage.Question);
+			            AppInfo.ShortName, MessageBoxButton.YesNo, MessageBoxImage.Question);
 			        if (overwrite != MessageBoxResult.Yes)
 			            return;
 			    }
@@ -4881,7 +4923,7 @@ namespace PublishedAppTracker
 		        if (selected == "Default Light" || selected == "Dark" || selected == "Blue")
 		        {
 		            MessageBox.Show("Built-in themes cannot be deleted.",
-		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+		                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
 		            return;
 		        }
 
@@ -4889,13 +4931,13 @@ namespace PublishedAppTracker
 		        if (!File.Exists(filePath))
 		        {
 		            MessageBox.Show("Theme file not found:\n" + filePath,
-		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+		                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
 		            return;
 		        }
 
 		        MessageBoxResult confirm = MessageBox.Show(
 		            "Delete theme '" + selected + "'?\n\nThis will permanently delete the file:\n" + filePath,
-		            "PAT v7", MessageBoxButton.YesNo, MessageBoxImage.Question);
+		            AppInfo.ShortName, MessageBoxButton.YesNo, MessageBoxImage.Question);
 		        if (confirm != MessageBoxResult.Yes)
 		            return;
 
@@ -4924,7 +4966,7 @@ namespace PublishedAppTracker
 		        catch (Exception ex)
 		        {
 		            MessageBox.Show("Failed to delete theme:\n" + ex.Message,
-		                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+		                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
 		        }
 		    };
 
@@ -6969,7 +7011,7 @@ namespace PublishedAppTracker
             {
                 MessageBoxResult result = MessageBox.Show(
                     "You have unsaved changes.\n\nDo you want to save before closing?",
-                    "PAT v7 — Unsaved Changes",
+                    AppInfo.ShortName + " — Unsaved Changes",
                     MessageBoxButton.YesNoCancel,
                     MessageBoxImage.Warning);
 
@@ -7282,7 +7324,7 @@ namespace PublishedAppTracker
             if (!IsSpsAvailable())
             {
                 MessageBox.Show("SPSSuite path is not set. Please set it in Application Settings.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -7292,7 +7334,7 @@ namespace PublishedAppTracker
             if (!File.Exists(builderPath))
             {
                 MessageBox.Show("SPSBuilder not found at:\n" + builderPath,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
@@ -7307,7 +7349,7 @@ namespace PublishedAppTracker
             catch (Exception ex)
             {
                 MessageBox.Show("Failed to open SPSBuilder:\n" + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -7364,7 +7406,7 @@ namespace PublishedAppTracker
         {
             if (string.IsNullOrEmpty(currentCategoryPath))
             {
-                MessageBox.Show("Please select a category first.", "PAT v7",
+                MessageBox.Show("Please select a category first.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -7387,7 +7429,7 @@ namespace PublishedAppTracker
 
             if (selected == null)
             {
-                MessageBox.Show("No track selected.", "PAT v7",
+                MessageBox.Show("No track selected.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -7406,7 +7448,7 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrWhiteSpace(safeName))
             {
-                MessageBox.Show("Invalid file name.", "PAT v7",
+                MessageBox.Show("Invalid file name.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -7419,7 +7461,7 @@ namespace PublishedAppTracker
                 MessageBoxResult overwrite = MessageBox.Show(
                     "Track file '" + safeName + ".track' already exists.\n\n" +
                     "Do you want to overwrite it?",
-                    "PAT v7", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    AppInfo.ShortName, MessageBoxButton.YesNo, MessageBoxImage.Question);
 
                 if (overwrite != MessageBoxResult.Yes)
                     return;
@@ -7474,7 +7516,7 @@ namespace PublishedAppTracker
             catch (Exception ex)
             {
                 MessageBox.Show("Error saving track copy:\n" + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -7555,7 +7597,7 @@ namespace PublishedAppTracker
                 catch (Exception ex)
                 {
                     MessageBox.Show("Error saving SPS category: " + ex.Message,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
             }
@@ -7599,7 +7641,7 @@ namespace PublishedAppTracker
             {
                 MessageBox.Show(
                     "Please set the SPSSuite path first by clicking ReBuild.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -7610,7 +7652,7 @@ namespace PublishedAppTracker
                 MessageBox.Show(
                     "No suites found in:\n" + spsSuiteRoot +
                     "\n\nMake sure suite folders contain a _Cache subfolder.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -7638,7 +7680,7 @@ namespace PublishedAppTracker
                     "This is typically located at:\n" +
                     "SyMenu\\ProgramFiles\\SPSSuite\n\n" +
                     "This will be saved for future use.",
-                    "PAT v7 — Set SPSSuite Path",
+                    AppInfo.ShortName + " — Set SPSSuite Path",
                     MessageBoxButton.OK, MessageBoxImage.Information);
 
                 var folderDialog = new System.Windows.Forms.FolderBrowserDialog();
@@ -7700,7 +7742,7 @@ namespace PublishedAppTracker
             {
                 MessageBox.Show(
                     "No suites selected.\n\nUse the Select Suites button to choose suites first.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -7713,7 +7755,7 @@ namespace PublishedAppTracker
                     MessageBox.Show(
                         "No _Cache folder found in:\n" + suite.FullPath +
                         "\n\nSuite '" + suite.Name + "' will be skipped.",
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
 
@@ -7737,7 +7779,7 @@ namespace PublishedAppTracker
                         "Category '" + targetName + "' contains .track files.\n\n" +
                         "SPS data must go in an empty or existing SPS category.\n\n" +
                         "Create a new category for this SPS data?",
-                        "PAT v7", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                        AppInfo.ShortName, MessageBoxButton.YesNo, MessageBoxImage.Question);
 
                     if (choice == MessageBoxResult.Yes)
                     {
@@ -7765,7 +7807,7 @@ namespace PublishedAppTracker
 
                 if (string.IsNullOrWhiteSpace(newName))
                 {
-                    MessageBox.Show("Invalid folder name.", "PAT v7",
+                    MessageBox.Show("Invalid folder name.", AppInfo.ShortName,
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
@@ -7820,7 +7862,7 @@ namespace PublishedAppTracker
 
                     if (suite.RequiresExtraction)
                     {
-                        // Default suite — extract zips from _Cache into _TmpPAT
+                        // Default suite — extract zips from _Cache into _TmpET
                         statusFile.Text = "Extracting " + suite.Name + "...";
                         parseFolder = SpsParser.ExtractSpsCache(suite.FullPath);
                         if (string.IsNullOrEmpty(parseFolder))
@@ -7971,7 +8013,7 @@ namespace PublishedAppTracker
             }
             catch (Exception ex)
             {
-                MessageBox.Show("ReBuild error: " + ex.Message, "PAT v7",
+                MessageBox.Show("ReBuild error: " + ex.Message, AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 statusFile.Text = "ReBuild failed.";
             }
@@ -8030,7 +8072,7 @@ namespace PublishedAppTracker
                     MessageBox.Show("Could not find uBlock Origin Chromium release.\n" +
                         "You can manually download from:\nhttps://github.com/gorhill/uBlock/releases\n\n" +
                         "Extract the uBlock0.chromium folder to:\n" + extensionsPath,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -8065,7 +8107,7 @@ namespace PublishedAppTracker
                 {
                     MessageBox.Show("Download succeeded but manifest.json not found.\n" +
                         "Check: " + extensionsPath,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -8098,7 +8140,7 @@ namespace PublishedAppTracker
                     statusFile.Text = "uBlock Origin installed successfully! Extension ID: " + newExtension.Id;
                     MessageBox.Show("uBlock Origin installed/updated successfully!\n\n" +
                         "The extension will be active for all WebView navigation.",
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 catch (Exception addEx)
                 {
@@ -8110,7 +8152,7 @@ namespace PublishedAppTracker
                             MessageBox.Show("uBlock Origin files have been updated on disk.\n\n" +
                                 "However, WebView2 could not re-register the extension in this session.\n" +
                                 "Please restart the application to load the updated version.",
-                                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
                         }
                         else
                         {
@@ -8119,7 +8161,7 @@ namespace PublishedAppTracker
                                 "Your WebView2 runtime may no longer support Manifest V2 extensions.\n" +
                                 "When Microsoft adds Manifest V3 support to WebView2, the extension can be updated.\n\n" +
                                 "In the meantime, the built-in cookie popup blocker is available as an alternative.",
-                                "PAT v7", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
                         }
                     }
                     else
@@ -8127,7 +8169,7 @@ namespace PublishedAppTracker
                         MessageBox.Show("Error installing uBlock Origin:\n" + addEx.Message +
                             "\n\nYou can manually download from:\nhttps://github.com/gorhill/uBlock/releases\n\n" +
                             "Extract the uBlock0.chromium folder to:\n" + extensionsPath,
-                            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                            AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                         statusFile.Text = "Extension install failed: " + addEx.Message;
                     }
                 }
@@ -8137,7 +8179,7 @@ namespace PublishedAppTracker
                 MessageBox.Show("Error installing uBlock Origin:\n" + ex.Message +
                     "\n\nYou can manually download from:\nhttps://github.com/gorhill/uBlock/releases\n\n" +
                     "Extract the uBlock0.chromium folder to:\n" + extensionsPath,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                 statusFile.Text = "Extension install failed: " + ex.Message;
             }
             finally
@@ -8156,7 +8198,7 @@ namespace PublishedAppTracker
 
                 if (extensions.Count == 0)
                 {
-                    MessageBox.Show("No extensions installed.", "PAT v7",
+                    MessageBox.Show("No extensions installed.", AppInfo.ShortName,
                         MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
@@ -8179,7 +8221,7 @@ namespace PublishedAppTracker
             catch (Exception ex)
             {
                 MessageBox.Show("Error listing extensions:\n" + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -8195,7 +8237,7 @@ namespace PublishedAppTracker
         private void About_Click(object sender, RoutedEventArgs e)
         {
             Window aboutWindow = new Window();
-            aboutWindow.Title = "About Published App Tracker";
+            aboutWindow.Title = "About " + AppInfo.AppName;
             aboutWindow.Width = 560;
             aboutWindow.Height = 520;
             aboutWindow.WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -8238,7 +8280,7 @@ namespace PublishedAppTracker
             panel.Children.Add(appIcon);
 
             TextBlock appName = new TextBlock();
-            appName.Text = "Published App Tracker";
+            appName.Text = AppInfo.AppName;
             appName.FontSize = 22;
             appName.FontWeight = FontWeights.Bold;
             appName.Foreground = new SolidColorBrush(currentTheme.WindowForeground);
@@ -8316,7 +8358,7 @@ namespace PublishedAppTracker
 
             // Copyright
             TextBlock copyright = new TextBlock();
-            copyright.Text = "© 2026 sl23. All rights reserved.";
+            copyright.Text = "© 2026 sl23. " + AppInfo.AppName + ". All rights reserved.";
             copyright.FontSize = 11;
             copyright.Foreground = new SolidColorBrush(currentTheme.StatusBarForeground);
             copyright.HorizontalAlignment = HorizontalAlignment.Center;
@@ -8586,7 +8628,7 @@ namespace PublishedAppTracker
                 catch (Exception ex)
                 {
                     MessageBox.Show("Error opening browser: " + ex.Message,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }
@@ -8597,7 +8639,7 @@ namespace PublishedAppTracker
 
             if (string.IsNullOrWhiteSpace(url))
             {
-                MessageBox.Show("Enter a Track URL first.", "PAT v7",
+                MessageBox.Show("Enter a Track URL first.", AppInfo.ShortName,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -8758,7 +8800,7 @@ namespace PublishedAppTracker
                         }
                         MessageBox.Show("Download failed:\n" + ex.Message +
                             "\n\nWebView2 fallback also failed.",
-                            "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                            AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                         statusFile.Text = "Download failed";
                     }
                 }
@@ -8776,7 +8818,7 @@ namespace PublishedAppTracker
                     }
                     MessageBox.Show("Download failed:\n" + ex.Message +
                         "\n\nWebView2 fallback error:\n" + ex2.Message,
-                        "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
                     statusFile.Text = "Download failed";
                 }
             }
@@ -9634,13 +9676,13 @@ namespace PublishedAppTracker
 
                 MessageBox.Show("All cookies have been deleted.\n\n" +
                     "You may need to reload any open pages.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
                 statusFile.Text = "All cookies cleared";
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error clearing cookies:\n" + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -9687,13 +9729,13 @@ namespace PublishedAppTracker
 
                 MessageBox.Show("All browsing data has been cleared.\n\n" +
                     "You may need to reload any open pages.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
                 statusFile.Text = "All browsing data and cookies cleared";
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error clearing data:\n" + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -9841,12 +9883,12 @@ namespace PublishedAppTracker
                 SaveWindowSettings();
                 statusFile.Text = "All settings saved";
                 MessageBox.Show("Settings saved successfully.",
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error saving settings:\n" + ex.Message,
-                    "PAT v7", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

@@ -1,4 +1,4 @@
-<Window x:Class="PublishedAppTracker.SuiteSelectionWindow"
+<Window x:Class="ElementalTracker.SuiteSelectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Select Suites" Width="350" Height="300"

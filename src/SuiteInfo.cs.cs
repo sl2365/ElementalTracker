@@ -1,6 +1,6 @@
 using System;
 
-namespace PublishedAppTracker
+namespace ElementalTracker
 {
     public class SuiteInfo
     {

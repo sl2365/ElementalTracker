@@ -4,7 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 
-namespace PublishedAppTracker
+namespace ElementalTracker
 {
     public class SpsParser
     {
@@ -32,21 +32,21 @@ namespace PublishedAppTracker
         }
 
         /// <summary>
-        /// Extracts SPS zip/sps files from a suite's _Cache folder into a _TmpPAT folder
+        /// Extracts SPS zip/sps files from a suite's _Cache folder into a _TmpET folder
         /// within that suite directory.
         /// suitePath should be the full path to a suite folder, e.g.
         /// [SPSSuiteRoot]\SyMenuSuite
-        /// Returns the path to _TmpPAT, or null on failure.
+        /// Returns the path to _TmpET, or null on failure.
         /// </summary>
         public static string ExtractSpsCache(string suitePath)
         {
             string cachePath = Path.Combine(suitePath, "_Cache");
-            string tmpPath = Path.Combine(suitePath, "_TmpPAT");
+            string tmpPath = Path.Combine(suitePath, "_TmpET");
 
             if (!Directory.Exists(cachePath))
                 return null;
 
-            // Clean and recreate _TmpPAT
+            // Clean and recreate _TmpET
             if (Directory.Exists(tmpPath))
             {
                 try { Directory.Delete(tmpPath, true); }
@@ -147,11 +147,11 @@ namespace PublishedAppTracker
         }
 
         /// <summary>
-        /// Cleans up the _TmpPAT folder inside a suite directory.
+        /// Cleans up the _TmpET folder inside a suite directory.
         /// </summary>
         public static void CleanupTmpFolder(string suitePath)
         {
-            string tmpPath = Path.Combine(suitePath, "_TmpPAT");
+            string tmpPath = Path.Combine(suitePath, "_TmpET");
             if (Directory.Exists(tmpPath))
             {
                 try { Directory.Delete(tmpPath, true); }

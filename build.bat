@@ -3,9 +3,9 @@
 @echo off
 :: Set Variables:
 :: Use quotes to handle spaces and avoid the extra backslash from %~dp0: set "DESTDIR=%~dp0TEST"
-set EXENAME=PublishedAppTracker.exe
+set EXENAME=ElementalTracker.exe
 set DESTDIR=%~dp0TEST
-set PROJNAME=PublishedAppTracker
+set PROJNAME=ElementalTracker
 
 :: Set the working directory:
 cd /d "%~dp0"

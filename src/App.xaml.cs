@@ -1,7 +1,7 @@
 using System;
 using System.Windows;
 
-namespace PublishedAppTracker
+namespace ElementalTracker
 {
     public partial class App : Application
     {
@@ -18,7 +18,7 @@ namespace PublishedAppTracker
                     "Error: " + inner.Message + 
                     "\n\nType: " + inner.GetType().Name +
                     "\n\n" + inner.StackTrace,
-                    "PAT v7 - Startup Error",
+                    AppInfo.ShortName + " - Startup Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
                 e.Handled = true;

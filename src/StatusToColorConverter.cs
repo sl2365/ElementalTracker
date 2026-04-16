@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Windows.Data;
 using System.Windows.Media;
 
-namespace PublishedAppTracker
+namespace ElementalTracker
 {
     public class StatusToColorConverter : IValueConverter
     {

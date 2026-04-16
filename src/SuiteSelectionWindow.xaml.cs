@@ -4,7 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
-namespace PublishedAppTracker
+namespace ElementalTracker
 {
     public partial class SuiteSelectionWindow : Window
     {

@@ -5,7 +5,7 @@ using System.Text;
 using System.Windows.Media;
 using System.Xml;
 
-namespace PublishedAppTracker
+namespace ElementalTracker
 {
     public class ThemeSettings
     {

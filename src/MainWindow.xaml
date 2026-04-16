@@ -1,8 +1,8 @@
-<Window x:Class="PublishedAppTracker.MainWindow"
+<Window x:Class="ElementalTracker.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="Published App Tracker v7.0.3" Width="1200" Height="800"
+        Title="Elemental Tracker" Width="1200" Height="800"
         MinWidth="1100" MinHeight="500"
         WindowStartupLocation="Manual">
 
@@ -30,7 +30,7 @@
 			    <MenuItem Header="Install/Update uBlock Origin" Click="InstallUBlock_Click" />
 			    <MenuItem Header="List Extensions" Click="ListExtensions_Click" />
 			</MenuItem>
-            <MenuItem Header="_Config">
+            <MenuItem Header="_Config" IsEnabled="False" Opacity="0.4">
             </MenuItem>
         </Menu>
 
