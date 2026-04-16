@@ -1,4 +1,4 @@
-# SPS Published App Track (PAT) x64
+# Elemental Tracker (ET)
 Precision web tracking made simple to keep you informed of what matters to you.
 
 ---
@@ -36,6 +36,11 @@ If any of your tracked URLs start failing because the server rejects your User-A
 ---
 
 ## Changelog
+
+### v7.0.7.821 — 2026.04.16
+- Name changed from PublishedAppTracker to ElementalTracker
+- Fixed SPS save bug when file didnt yet exist
+
 
 ### v7.0.4.480 — 2026.04.09
 - Toolbar overflow button restored
@@ -106,7 +111,7 @@ Major upgrade — now compiled as **x64**.
 
 #### v5.2.0.2 — 2026.03.12
 - Merged Form1 and Form2 into single window with SplitContainer
-
+---
 ### Original code and changelog by VVV_Easy_SyMenu
 
 #### v5.2 — 2018.03.01
