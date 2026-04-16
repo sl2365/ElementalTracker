@@ -2591,7 +2591,8 @@ namespace ElementalTracker
             else if (result == MessageBoxResult.No)
             {
                 // Discard changes — reload original values from file
-                currentTrackItem.ReloadFromFile();
+                if (!string.IsNullOrEmpty(currentTrackItem.FilePath) && File.Exists(currentTrackItem.FilePath))
+					currentTrackItem.ReloadFromFile();
 
                 isLoadingFields = true;
                 editName.Text = currentTrackItem.TrackName;
@@ -3776,81 +3777,232 @@ namespace ElementalTracker
             }
         }
 
-        private void DeleteTrack_Click(object sender, RoutedEventArgs e)
-        {
-            TrackItem selected = itemList.SelectedItem as TrackItem;
+		private void DeleteTrack_Click(object sender, RoutedEventArgs e)
+		{
+		    TrackItem selected = itemList.SelectedItem as TrackItem;
 
-            if (selected == null)
-            {
-                MessageBox.Show("No track selected.", AppInfo.ShortName,
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
+		    if (selected == null)
+		    {
+		        MessageBox.Show("No track selected.", AppInfo.ShortName,
+		            MessageBoxButton.OK, MessageBoxImage.Information);
+		        return;
+		    }
 
-            MessageBoxResult result = MessageBox.Show(
-                "Delete track '" + selected.TrackName + "'?\n\n" +
-                "File: " + Path.GetFileName(selected.FilePath),
-                "Delete Track",
-                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+		    // Determine if this is an SPS category
+		    bool isSpsCategory = false;
+		    if (!string.IsNullOrEmpty(currentCategoryPath))
+		    {
+		        if (Directory.GetFiles(currentCategoryPath, "*.xml").Length > 0)
+		            isSpsCategory = true;
+		        else if (currentItems.Count > 0 && string.IsNullOrEmpty(currentItems[0].FilePath))
+		            isSpsCategory = true;
+		    }
 
-            if (result == MessageBoxResult.Yes)
-            {
-                try
-                {
-                    int deletedIndex = currentItems.IndexOf(selected);
+		    if (isSpsCategory)
+		    {
+		        // --- SPS category: remove entry from list + XML, optionally delete .sps file ---
+		        string spsFileInfo = "";
+		        string spsFilePath = null;
 
-                    if (File.Exists(selected.FilePath))
-                    {
-                        File.Delete(selected.FilePath);
-                    }
+		        if (!string.IsNullOrEmpty(selected.SpsFileName) && !string.IsNullOrEmpty(selected.SuiteName)
+		            && !string.IsNullOrEmpty(windowSettings.SpsSuiteRootPath))
+		        {
+		            spsFilePath = Path.Combine(windowSettings.SpsSuiteRootPath,
+		                selected.SuiteName, "_Cache", selected.SpsFileName);
+		            if (File.Exists(spsFilePath))
+		                spsFileInfo = "\n\nSPS file on disk:\n" + spsFilePath +
+		                    "\n\nAlso delete the .sps file from the cache?";
+		        }
 
-                    isLoadingFields = true;
-                    suppressAutoDownload = true;
+		        // First confirm removing from the list
+		        MessageBoxResult result = MessageBox.Show(
+		            "Remove track '" + selected.TrackName + "' from this SPS category?" + spsFileInfo,
+		            "Delete SPS Track",
+		            MessageBoxButton.YesNo, MessageBoxImage.Warning);
 
-                    // Reload the current category
-                    if (!string.IsNullOrEmpty(currentCategoryPath))
-                    {
-                        LoadTrackFiles(currentCategoryPath);
-                    }
+		        if (result != MessageBoxResult.Yes)
+		            return;
 
-                    suppressCategoryReload = true;
-                    RefreshCategoryTree();
-                    suppressCategoryReload = false;
+		        try
+		        {
+		            int deletedIndex = currentItems.IndexOf(selected);
 
-                    // Select the next available item
-                    if (currentItems.Count > 0)
-                    {
-                        int newIndex = deletedIndex;
-                        if (newIndex >= currentItems.Count)
-                            newIndex = currentItems.Count - 1;
+		            // Remove from in-memory list
+		            currentItems.Remove(selected);
 
-                        suppressAutoDownload = false;
-                        isLoadingFields = false;
-                        itemList.SelectedIndex = newIndex;
-                    }
-                    else
-                    {
-                        ClearTrackFields();
-                        currentTrackItem = null;
-                        suppressAutoDownload = false;
-                        isLoadingFields = false;
-                    }
+		            // Save updated XML
+		            string[] xmlFiles = Directory.GetFiles(currentCategoryPath, "*.xml");
+		            if (xmlFiles.Length > 0)
+		            {
+		                string xmlPath = xmlFiles[0];
+		                string publisherFilter = txtSettingsPublisherFilter != null
+		                    ? txtSettingsPublisherFilter.Text.Trim() : "";
+		                string suitePath = "";
+		                List<string> savedSuites = windowSettings.SelectedSuites;
 
-                    RecalculateCategoryDirty();
-                    isDirty = false;
-                    UpdateSaveButtonStates();
+		                string existingPf, existingSp;
+		                List<string> existingSuites;
+		                TrackItem.LoadSpsListFromFile(xmlPath, out existingPf, out existingSp, out existingSuites);
+		                if (!string.IsNullOrEmpty(existingSp)) suitePath = existingSp;
+		                if (existingSuites.Count > 0) savedSuites = existingSuites;
 
-                    statusFile.Text = "Deleted: " + selected.TrackName;
-                }
-                catch (Exception ex)
-                {
-                    suppressAutoDownload = false;
-                    isLoadingFields = false;
-                    MessageBox.Show("Error deleting track: " + ex.Message,
-                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            }
-        }
+		                TrackItem.SaveSpsListToFile(xmlPath, currentItems.ToList(),
+		                    publisherFilter, suitePath, savedSuites);
+		            }
+
+		            // Delete the .sps file from disk if user confirmed and it exists
+		            if (!string.IsNullOrEmpty(spsFilePath) && File.Exists(spsFilePath))
+		            {
+		                try { File.Delete(spsFilePath); }
+		                catch (Exception ex2)
+		                {
+		                    MessageBox.Show("Could not delete SPS file:\n" + ex2.Message,
+		                        AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Warning);
+		                }
+		            }
+
+		            // Refresh UI
+		            isLoadingFields = true;
+		            suppressAutoDownload = true;
+		            itemList.ItemsSource = null;
+		            itemList.ItemsSource = currentItems;
+
+		            if (currentItems.Count > 0)
+		            {
+		                int newIndex = deletedIndex;
+		                if (newIndex >= currentItems.Count)
+		                    newIndex = currentItems.Count - 1;
+		                suppressAutoDownload = false;
+		                isLoadingFields = false;
+		                itemList.SelectedIndex = newIndex;
+		            }
+		            else
+		            {
+		                ClearTrackFields();
+		                currentTrackItem = null;
+		                suppressAutoDownload = false;
+		                isLoadingFields = false;
+		            }
+
+		            suppressCategoryReload = true;
+		            RefreshCategoryTree();
+		            suppressCategoryReload = false;
+
+		            RecalculateCategoryDirty();
+		            isDirty = false;
+		            UpdateSaveButtonStates();
+
+		            statusFile.Text = "Deleted SPS track: " + selected.TrackName;
+		        }
+		        catch (Exception ex)
+		        {
+		            suppressAutoDownload = false;
+		            isLoadingFields = false;
+		            MessageBox.Show("Error deleting SPS track: " + ex.Message,
+		                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
+		        }
+
+		        return;
+		    }
+
+		    // --- Standard .track file category (original logic) ---
+		    MessageBoxResult trackResult = MessageBox.Show(
+		        "Delete track '" + selected.TrackName + "'?\n\n" +
+		        "File: " + Path.GetFileName(selected.FilePath),
+		        "Delete Track",
+		        MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+		    if (trackResult != MessageBoxResult.Yes)
+		        return;
+
+				try
+				{
+				    int deletedIndex = currentItems.IndexOf(selected);
+
+				    // Check if this is an SPS category
+				    isSpsCategory = false;
+				    if (!string.IsNullOrEmpty(currentCategoryPath))
+				    {
+				        if (Directory.GetFiles(currentCategoryPath, "*.xml").Length > 0)
+				            isSpsCategory = true;
+				        else if (currentItems.Count > 0 && string.IsNullOrEmpty(currentItems[0].FilePath))
+				            isSpsCategory = true;
+				    }
+
+				    if (isSpsCategory)
+				    {
+				        // SPS category — remove from in-memory list (don't reload from disk)
+				        isLoadingFields = true;
+				        suppressAutoDownload = true;
+
+				        currentItems.Remove(selected);
+
+				        suppressAutoDownload = true;
+				        itemList.ItemsSource = null;
+				        itemList.ItemsSource = currentItems;
+				    }
+				    else
+				    {
+				        // Standard category — delete the .track file and reload
+				        if (File.Exists(selected.FilePath))
+				        {
+				            File.Delete(selected.FilePath);
+				        }
+
+				        isLoadingFields = true;
+				        suppressAutoDownload = true;
+
+				        if (!string.IsNullOrEmpty(currentCategoryPath))
+				        {
+				            LoadTrackFiles(currentCategoryPath);
+				        }
+				    }
+
+		            suppressCategoryReload = true;
+		            RefreshCategoryTree();
+		            suppressCategoryReload = false;
+
+		            if (currentItems.Count > 0)
+		            {
+		                int newIndex = deletedIndex;
+		                if (newIndex >= currentItems.Count)
+		                    newIndex = currentItems.Count - 1;
+		                suppressAutoDownload = false;
+		                isLoadingFields = false;
+		                itemList.SelectedIndex = newIndex;
+		            }
+		            else
+		            {
+		                ClearTrackFields();
+		                currentTrackItem = null;
+		                suppressAutoDownload = false;
+		                isLoadingFields = false;
+		            }
+
+	                if (isSpsCategory)
+	                {
+	                    // Mark category dirty so Save All is enabled
+	                    isCategoryDirty = true;
+	                    isDirty = false;
+	                    UpdateSaveButtonStates();
+	                }
+	                else
+	                {
+	                    RecalculateCategoryDirty();
+	                    isDirty = false;
+	                    UpdateSaveButtonStates();
+	                }
+
+		            statusFile.Text = "Deleted: " + selected.TrackName;
+		        }
+		        catch (Exception ex)
+		        {
+		            suppressAutoDownload = false;
+		            isLoadingFields = false;
+		            MessageBox.Show("Error deleting track: " + ex.Message,
+		                AppInfo.ShortName, MessageBoxButton.OK, MessageBoxImage.Error);
+		        }
+		}
 
         private void CreateNewTrack()
         {
@@ -3999,10 +4151,11 @@ namespace ElementalTracker
 
                     TrackItem.SaveSpsListToFile(xmlPath, currentItems.ToList(), publisherFilter, suitePath, savedSuites);
                 }
-                else
-                {
-                    currentTrackItem.SaveToFile();
-                }
+				else
+				{
+				    if (!string.IsNullOrEmpty(currentTrackItem.FilePath))
+				        currentTrackItem.SaveToFile();
+				}
 
                 // Refresh list
                 int selectedIndex = currentItems.IndexOf(currentTrackItem);
