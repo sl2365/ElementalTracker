@@ -48,6 +48,10 @@ namespace ElementalTracker
 		public string DownloadURLStatus { get; set; } = "";
 		public string DownloadSizeStatus { get; set; } = "";
         public string TrackMode { get; set; } = "html";
+		public string ReleaseDateStartString { get; set; } = "";
+		public string ReleaseDateStopString { get; set; } = "";
+		public string LatestReleaseDate { get; set; } = "";
+		public string ReleaseDateStatus { get; set; } = "";
 
         // ============================
         // Track Block Extraction
@@ -585,6 +589,65 @@ namespace ElementalTracker
                 result.Status = "changed";
             }
 
+			// --- Release Date extraction ---
+			if (!string.IsNullOrEmpty(ReleaseDateStartString) && !string.IsNullOrEmpty(ReleaseDateStopString))
+			{
+			    string rdStart = ReleaseDateStartString;
+			    string rdStop = ReleaseDateStopString;
+			    int rdStartIdx = -1;
+			    int rdStartLen = 0;
+
+			    if (IsRegexPattern(rdStart))
+			    {
+			        var match = FindRegexMatch(pageSource, rdStart, 0);
+			        if (match != null && match.Success)
+			        {
+			            rdStartIdx = match.Index;
+			            rdStartLen = match.Length;
+			        }
+			    }
+			    else
+			    {
+			        string ns = rdStart.Replace("\r\n", "\n").Replace("\r", "\n");
+			        rdStartIdx = pageSource.IndexOf(ns, StringComparison.Ordinal);
+			        rdStartLen = ns.Length;
+			    }
+
+			    if (rdStartIdx >= 0)
+			    {
+			        int rdContentStart = rdStartIdx + rdStartLen;
+			        int rdStopIdx = -1;
+
+			        if (IsRegexPattern(rdStop))
+			        {
+			            var match = FindRegexMatch(pageSource, rdStop, rdContentStart);
+			            if (match != null && match.Success)
+			                rdStopIdx = match.Index;
+			        }
+			        else
+			        {
+			            string ns = rdStop.Replace("\r\n", "\n").Replace("\r", "\n");
+			            rdStopIdx = pageSource.IndexOf(ns, rdContentStart, StringComparison.Ordinal);
+			        }
+
+			        if (rdStopIdx > rdContentStart)
+			        {
+			            string extractedDate = pageSource.Substring(rdContentStart, rdStopIdx - rdContentStart).Trim();
+			            if (extractedDate.Length <= 100) // sanity limit
+			            {
+			                LatestReleaseDate = extractedDate;
+
+			                if (string.IsNullOrEmpty(ReleaseDate))
+			                    ReleaseDateStatus = "new";
+			                else if (ReleaseDate.Trim() != extractedDate)
+			                    ReleaseDateStatus = "changed";
+			                else
+			                    ReleaseDateStatus = "match";
+			            }
+			        }
+			    }
+			}
+
             result.Hash = newHash;
             result.TrackBlock = trackBlock;
             IsDirtyInMemory = true;
@@ -636,6 +699,8 @@ namespace ElementalTracker
                 writer.WriteElementString("DownloadSizeKb", DownloadSizeKb ?? "");
                 writer.WriteElementString("TrackStatus", TrackStatus ?? "unchecked");
                 writer.WriteElementString("ReleaseDate", ReleaseDate ?? "");
+                writer.WriteElementString("ReleaseDateStartString", ReleaseDateStartString ?? "");
+				writer.WriteElementString("ReleaseDateStopString", ReleaseDateStopString ?? "");
                 writer.WriteElementString("CreationDate", CreationDate ?? "");
                 writer.WriteElementString("ModificationDate", ModificationDate ?? "");
                 writer.WriteElementString("PublisherName", PublisherName ?? "");
@@ -682,6 +747,8 @@ namespace ElementalTracker
                 item.DownloadSizeKb = GetNodeText(track, "DownloadSizeKb");
                 item.TrackStatus = GetNodeText(track, "TrackStatus");
                 item.ReleaseDate = GetNodeText(track, "ReleaseDate");
+                item.ReleaseDateStartString = GetNodeText(track, "ReleaseDateStartString");
+				item.ReleaseDateStopString = GetNodeText(track, "ReleaseDateStopString");
                 item.CreationDate = GetNodeText(track, "CreationDate");
                 item.ModificationDate = GetNodeText(track, "ModificationDate");
                 item.PublisherName = GetNodeText(track, "PublisherName");
@@ -722,6 +789,8 @@ namespace ElementalTracker
                 DownloadSizeKb = reloaded.DownloadSizeKb;
                 TrackStatus = reloaded.TrackStatus;
                 ReleaseDate = reloaded.ReleaseDate;
+                ReleaseDateStartString = reloaded.ReleaseDateStartString;
+				ReleaseDateStopString = reloaded.ReleaseDateStopString;
                 CreationDate = reloaded.CreationDate;
                 ModificationDate = reloaded.ModificationDate;
                 PublisherName = reloaded.PublisherName;
@@ -792,6 +861,8 @@ namespace ElementalTracker
                     writer.WriteElementString("DownloadSizeKb", item.DownloadSizeKb ?? "");
                     writer.WriteElementString("TrackStatus", item.TrackStatus ?? "unchecked");
                     writer.WriteElementString("ReleaseDate", item.ReleaseDate ?? "");
+                    writer.WriteElementString("ReleaseDateStartString", item.ReleaseDateStartString ?? "");
+					writer.WriteElementString("ReleaseDateStopString", item.ReleaseDateStopString ?? "");
                     writer.WriteElementString("CreationDate", item.CreationDate ?? "");
                     writer.WriteElementString("ModificationDate", item.ModificationDate ?? "");
                     writer.WriteElementString("PublisherName", item.PublisherName ?? "");
@@ -867,6 +938,8 @@ namespace ElementalTracker
                     item.DownloadSizeKb = GetNodeText(track, "DownloadSizeKb");
                     item.TrackStatus = GetNodeText(track, "TrackStatus");
                     item.ReleaseDate = GetNodeText(track, "ReleaseDate");
+                    item.ReleaseDateStartString = GetNodeText(track, "ReleaseDateStartString");
+					item.ReleaseDateStopString = GetNodeText(track, "ReleaseDateStopString");
                     item.CreationDate = GetNodeText(track, "CreationDate");
                     item.ModificationDate = GetNodeText(track, "ModificationDate");
                     item.PublisherName = GetNodeText(track, "PublisherName");

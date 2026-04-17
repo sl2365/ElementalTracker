@@ -91,6 +91,7 @@ namespace ElementalTracker
 		public Color VersionMismatchColor { get; set; } = Color.FromRgb(200, 30, 30);
         public Color TrackToolbarBackground { get; set; } = Color.FromRgb(240, 240, 240);
         public Color TrackToolbarForeground { get; set; } = Color.FromRgb(0, 0, 0);
+		public Color ReleaseDateChangedBackground { get; set; } = Color.FromRgb(255, 200, 80);
 
         // Tabs
         public Color TabBackground { get; set; } = Color.FromRgb(240, 240, 240);
@@ -200,6 +201,7 @@ namespace ElementalTracker
 			t.VersionMismatchColor = Color.FromRgb(255, 80, 80);
             t.TrackToolbarBackground = Color.FromRgb(45, 45, 45);
             t.TrackToolbarForeground = Color.FromRgb(220, 220, 220);
+            t.ReleaseDateChangedBackground = Color.FromRgb(180, 120, 40);
 
             t.TabBackground = Color.FromRgb(40, 40, 40);
             t.TabForeground = Color.FromRgb(200, 200, 200);
@@ -287,6 +289,7 @@ namespace ElementalTracker
 			t.VersionMismatchColor = Color.FromRgb(200, 40, 40);
             t.TrackToolbarBackground = Color.FromRgb(210, 230, 255);
             t.TrackToolbarForeground = Color.FromRgb(20, 20, 60);
+            t.ReleaseDateChangedBackground = Color.FromRgb(200, 140, 50);
 
             t.TabBackground = Color.FromRgb(220, 235, 255);
             t.TabForeground = Color.FromRgb(20, 40, 80);

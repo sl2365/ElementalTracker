@@ -38,12 +38,14 @@ namespace ElementalTracker
         private Microsoft.Web.WebView2.Wpf.WebView2 webView;
 		private CheckBox selectAllCheckbox;
 
-		// Settings tab SPS
+		// Settings tab/SPS
         private Button btnSpsSelectSuites;
         private Button btnSpsScanCache;
         private StackPanel spsPublisherSettingsPanel;
         private TextBlock txtSettingsSearchCount;
         private TextBox txtSettingsPublisherFilter;
+		private TextBox editDefaultPublisherName;
+		private ComboBox defaultTrackModeCombo;
 
         // Track settings fields
         private TextBox editName;
@@ -52,6 +54,8 @@ namespace ElementalTracker
         private TextBox editStopString;
         private TextBox editDownloadURL;
         private TextBox editVersion;
+        private TextBox editReleaseDateStartString;
+		private TextBox editReleaseDateStopString;
         private TextBlock editLatestVersion;
         private TextBox editReleaseDate;
         private TextBox editPublisherName;
@@ -61,6 +65,8 @@ namespace ElementalTracker
         private string currentCategoryPath = null;
         private TextBlock startPositionText;
         private TextBlock stopPositionText;
+        private TextBlock dateStartPositionText;
+		private TextBlock dateStopPositionText;
         private Button btnUpdateVersion;
         private bool suppressAutoDownload = false;
         private bool blockCookiePopups = true;
@@ -72,10 +78,8 @@ namespace ElementalTracker
         private bool isLoadingFields = false;
         private bool suppressSelectionChange = false;
         private bool suppressCategoryReload = false;
-        private Button btnSaveTrack;
-        private Button btnSaveTrackAs;
-        private Button btnSaveMain;
-        private Button btnSaveAsMain;
+		private Button btnSaveTrack = null;
+		private Button btnSaveTrackAs = null;
         private Button btnTrackMode;
         private bool trackSettingsCollapsed = false;
         private ToolBarTray trackToolBarTray;
@@ -235,8 +239,6 @@ namespace ElementalTracker
 			previewTheme = currentTheme.Clone();
 
 			BuildSharedControls();
-            btnSaveMain = btnSave;
-            btnSaveAsMain = btnSaveAs;
             UpdateSpsVisibility();
             UpdateSpsSettingsEnabled();
             if (!string.IsNullOrEmpty(windowSettings.SpsSuiteRootPath))
@@ -632,7 +634,7 @@ namespace ElementalTracker
             headerRow.Children.Add(btnToggleTrackPanel);
 
             trackSettingsLabel = new TextBlock();
-            trackSettingsLabel.Text = "Track Settings";
+            trackSettingsLabel.Text = "Track File";
             trackSettingsLabel.FontWeight = FontWeights.Bold;
             trackSettingsLabel.FontSize = 13;
             trackSettingsLabel.VerticalAlignment = VerticalAlignment.Center;
@@ -732,23 +734,19 @@ namespace ElementalTracker
 
             trackToolBar.Items.Add(new Separator());
 
-            btnSaveTrack = CreateToolBarButton("\uE74E", "Save track file", Save_Click);
-            btnSaveTrack.IsEnabled = false;
-            btnSaveTrack.Opacity = 0.4;
-            trackToolBar.Items.Add(btnSaveTrack);
+            Button btnGoStart = CreateToolBarButton("\xe761", "Go to Version Start String", GoToStartString_Click);
+            trackToolBar.Items.Add(btnGoStart);
 
-            btnSaveTrackAs = CreateToolBarButton("\uE792", "Save track as...", SaveTrackAs_Click);
-            btnSaveTrackAs.IsEnabled = false;
-            btnSaveTrackAs.Opacity = 0.4;
-            trackToolBar.Items.Add(btnSaveTrackAs);
+            Button btnGoStop = CreateToolBarButton("\xe760", "Go to Version Stop String", GoToStopString_Click);
+            trackToolBar.Items.Add(btnGoStop);
 
             trackToolBar.Items.Add(new Separator());
 
-            Button btnGoStart = CreateToolBarButton("\xe761", "Go to Start String", GoToStartString_Click);
-            trackToolBar.Items.Add(btnGoStart);
+			Button btnGoDateStart = CreateToolBarButton("\xe787", "Go to Date Start String", GoToDateStartString_Click);
+			trackToolBar.Items.Add(btnGoDateStart);
 
-            Button btnGoStop = CreateToolBarButton("\xe760", "Go to Stop String", GoToStopString_Click);
-            trackToolBar.Items.Add(btnGoStop);
+			Button btnGoDateStop = CreateToolBarButton("\xe786", "Go to Date Stop String", GoToDateStopString_Click);
+			trackToolBar.Items.Add(btnGoDateStop);
 
             trackToolBar.Items.Add(new Separator());
 
@@ -838,140 +836,259 @@ namespace ElementalTracker
             scrollArea.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             trackSettingsScrollArea = scrollArea;
 
-            StackPanel fieldsPanel = new StackPanel();
-            fieldsPanel.Margin = new Thickness(8);
+			StackPanel fieldsPanel = new StackPanel();
+			fieldsPanel.Margin = new Thickness(8);
 
-            editName = AddSettingsField(fieldsPanel, "Track Name:");
-            editName.ToolTip = "Set a name for your track. This is not a filename.";
+			// ==============================
+			// Group 1: Track Data
+			// ==============================
+			TextBlock trackDataHeader = new TextBlock();
+			trackDataHeader.Text = "Track Data";
+			trackDataHeader.FontWeight = FontWeights.Bold;
+			trackDataHeader.FontSize = 13;
+			trackDataHeader.Foreground = new SolidColorBrush(currentTheme.TabSelectedForeground);
+			trackDataHeader.Margin = new Thickness(0, 0, 0, 4);
+			fieldsPanel.Children.Add(trackDataHeader);
 
-            // Track URL with buttons
-            TextBlock urlLabel = new TextBlock();
-            urlLabel.Text = "Track URL:";
-            urlLabel.Margin = new Thickness(0, 0, 0, 4);
-            fieldsPanel.Children.Add(urlLabel);
+			Border trackDataBorder = new Border();
+			trackDataBorder.BorderBrush = new SolidColorBrush(currentTheme.SplitterColor);
+			trackDataBorder.BorderThickness = new Thickness(1);
+			trackDataBorder.CornerRadius = new CornerRadius(4);
+			trackDataBorder.Padding = new Thickness(8);
+			trackDataBorder.Margin = new Thickness(0, 0, 0, 12);
+			trackDataBorder.Tag = "TrackDataBorder";
 
-            DockPanel urlDock = new DockPanel();
-            urlDock.Margin = new Thickness(0, 0, 0, 8);
+			StackPanel trackDataPanel = new StackPanel();
 
-            editTrackURL = new TextBox();
-            editTrackURL.ToolTip = "The webpage to check for info.";
-            urlDock.Children.Add(editTrackURL);
-            fieldsPanel.Children.Add(urlDock);
+			editName = AddSettingsField(trackDataPanel, "Track Name:");
+			editName.ToolTip = "Set a name for your track. This is not a filename.";
 
-            // Start String with Go To button
-            DockPanel startLabelDock = new DockPanel();
-            startLabelDock.Margin = new Thickness(0, 0, 0, 4);
+			// Track URL
+			TextBlock urlLabel = new TextBlock();
+			urlLabel.Text = "Track URL:";
+			urlLabel.Margin = new Thickness(0, 0, 0, 4);
+			trackDataPanel.Children.Add(urlLabel);
 
-            startPositionText = new TextBlock();
-            startPositionText.Text = "";
-            startPositionText.Foreground = Brushes.Gray;
-            startPositionText.FontSize = 11;
-            startPositionText.HorizontalAlignment = HorizontalAlignment.Right;
-            DockPanel.SetDock(startPositionText, Dock.Right);
-            startLabelDock.Children.Add(startPositionText);
+			DockPanel urlDock = new DockPanel();
+			urlDock.Margin = new Thickness(0, 0, 0, 8);
 
-            TextBlock startLabel = new TextBlock();
-            startLabel.Text = "Version Start String:";
-            startLabelDock.Children.Add(startLabel);
+			editTrackURL = new TextBox();
+			editTrackURL.ToolTip = "The webpage to check for info.";
+			urlDock.Children.Add(editTrackURL);
+			trackDataPanel.Children.Add(urlDock);
 
-            fieldsPanel.Children.Add(startLabelDock);
+			editDownloadURL = AddSettingsField(trackDataPanel, "Download URL:");
+			editDownloadURL.ToolTip =
+			    "Use {VERSION} placeholders to auto-insert the current version:\n\n" +
+			    "  {VERSION}    inserts version as-is, e.g. 2.18\n" +
+			    "  {VERSION_}   replaces dots with underscores, e.g. 2_18\n" +
+			    "  {VERSION-}   replaces dots with hyphens, e.g. 2-18\n\n" +
+			    "Example:\n" +
+			    "https://example.com/downloads/App_{VERSION_}.exe\n" +
+			    "resolves to: https://example.com/downloads/App_2_18.exe";
 
-            DockPanel startDock = new DockPanel();
-            startDock.Margin = new Thickness(0, 0, 0, 8);
+			editVersion = AddSettingsField(trackDataPanel, "Version:", 150);
+			editVersion.ToolTip = "After a check, use Update Version button to update this field.";
 
-            editStartString = new TextBox();
-            editStartString.Height = 60;
-            editStartString.AcceptsReturn = true;
-            editStartString.TextWrapping = TextWrapping.Wrap;
-            editStartString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-            editStartString.ToolTip = "Enter unique identifier for the start string.";
-            startDock.Children.Add(editStartString);
-            fieldsPanel.Children.Add(startDock);
-            editStartString.TextChanged += (s, ev) =>
-            {
-                if (!isLoadingFields)
-                    MarkDirty();
-            };
+			// Read-only latest version display
+			TextBlock latestLabel = new TextBlock();
+			latestLabel.Text = "Latest Version (auto-detected):";
+			latestLabel.Margin = new Thickness(0, 0, 0, 4);
+			trackDataPanel.Children.Add(latestLabel);
 
-            // Stop String with Go To button
-            DockPanel stopLabelDock = new DockPanel();
-            stopLabelDock.Margin = new Thickness(0, 0, 0, 4);
+			DockPanel latestDock = new DockPanel();
+			latestDock.Margin = new Thickness(0, 0, 0, 8);
 
-            stopPositionText = new TextBlock();
-            stopPositionText.Text = "";
-            stopPositionText.Foreground = Brushes.Gray;
-            stopPositionText.FontSize = 11;
-            stopPositionText.HorizontalAlignment = HorizontalAlignment.Right;
-            DockPanel.SetDock(stopPositionText, Dock.Right);
-            stopLabelDock.Children.Add(stopPositionText);
+			TextBlock latestDisplay = new TextBlock();
+			latestDisplay.Text = "";
+			latestDisplay.FontWeight = FontWeights.Bold;
+			latestDisplay.FontSize = 14;
+			latestDisplay.VerticalAlignment = VerticalAlignment.Center;
+			latestDisplay.ToolTip = "After a check, this displays last tracked info.";
+			latestDock.Children.Add(latestDisplay);
+			editLatestVersion = latestDisplay;
 
-            TextBlock stopLabel = new TextBlock();
-            stopLabel.Text = "Version Stop String:";
-            stopLabelDock.Children.Add(stopLabel);
+			trackDataPanel.Children.Add(latestDock);
 
-            fieldsPanel.Children.Add(stopLabelDock);
+			// Metadata fields
+			editReleaseDate = AddSettingsField(trackDataPanel, "Release Date:");
+			editReleaseDate.ToolTip = "Shows the current version release date.";
+			editPublisherName = AddSettingsField(trackDataPanel, "Publisher Name:");
+			editPublisherName.ToolTip = "Used to display info from SPS files.";
+			editSuiteName = AddSettingsField(trackDataPanel, "Suite Name:");
+			editSuiteName.ToolTip = "Used to display info from SPS files.";
 
-            DockPanel stopDock = new DockPanel();
-            stopDock.Margin = new Thickness(0, 0, 0, 8);
+			trackDataBorder.Child = trackDataPanel;
+			fieldsPanel.Children.Add(trackDataBorder);
 
-            editStopString = new TextBox();
-            editStopString.Height = 60;
-            editStopString.AcceptsReturn = true;
-            editStopString.TextWrapping = TextWrapping.Wrap;
-            editStopString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-            editStopString.ToolTip = "Enter a string that follows info to be tracked.";
-            stopDock.Children.Add(editStopString);
-            fieldsPanel.Children.Add(stopDock);
+			// ==============================
+			// Group 2: Track Settings
+			// ==============================
+			TextBlock trackSettingsHeader = new TextBlock();
+			trackSettingsHeader.Text = "Track Settings";
+			trackSettingsHeader.FontWeight = FontWeights.Bold;
+			trackSettingsHeader.FontSize = 13;
+			trackSettingsHeader.Foreground = new SolidColorBrush(currentTheme.TabSelectedForeground);
+			trackSettingsHeader.Margin = new Thickness(0, 0, 0, 4);
+			fieldsPanel.Children.Add(trackSettingsHeader);
 
-            editDownloadURL = AddSettingsField(fieldsPanel, "Download URL:");
-            editDownloadURL.ToolTip =
-                "Use {VERSION} placeholders to auto-insert the current version:\n\n" +
-                "  {VERSION}    inserts version as-is, e.g. 2.18\n" +
-                "  {VERSION_}   replaces dots with underscores, e.g. 2_18\n" +
-                "  {VERSION-}   replaces dots with hyphens, e.g. 2-18\n\n" +
-                "Example:\n" +
-                "https://example.com/downloads/App_{VERSION_}.exe\n" +
-                "resolves to: https://example.com/downloads/App_2_18.exe";
+			Border trackSettingsBorder = new Border();
+			trackSettingsBorder.BorderBrush = new SolidColorBrush(currentTheme.SplitterColor);
+			trackSettingsBorder.BorderThickness = new Thickness(1);
+			trackSettingsBorder.CornerRadius = new CornerRadius(4);
+			trackSettingsBorder.Padding = new Thickness(8);
+			trackSettingsBorder.Margin = new Thickness(0, 0, 0, 12);
+			trackSettingsBorder.Tag = "TrackSettingsBorder";
 
-            editVersion = AddSettingsField(fieldsPanel, "Version:", 150);
-            editVersion.ToolTip = "After a check, use Update Version button to update this field.";
-            editStopString.TextChanged += (s, ev) =>
-            {
-                if (!isLoadingFields)
-                {
-                    MarkDirty();
-                    if (currentTrackItem != null)
-                        currentTrackItem.StopString = editStopString.Text;
-                }
-            };
+			StackPanel trackSettingsFieldsPanel = new StackPanel();
 
-            // Read-only latest version display with update button
-            TextBlock latestLabel = new TextBlock();
-            latestLabel.Text = "Latest Version (auto-detected):";
-            latestLabel.Margin = new Thickness(0, 0, 0, 4);
-            fieldsPanel.Children.Add(latestLabel);
+			// Version Start String with position text
+			DockPanel startLabelDock = new DockPanel();
+			startLabelDock.Margin = new Thickness(0, 0, 0, 4);
 
-            DockPanel latestDock = new DockPanel();
-            latestDock.Margin = new Thickness(0, 0, 0, 8);
+			startPositionText = new TextBlock();
+			startPositionText.Text = "";
+			startPositionText.Foreground = Brushes.Gray;
+			startPositionText.FontSize = 11;
+			startPositionText.HorizontalAlignment = HorizontalAlignment.Right;
+			DockPanel.SetDock(startPositionText, Dock.Right);
+			startLabelDock.Children.Add(startPositionText);
 
-            TextBlock latestDisplay = new TextBlock();
-            latestDisplay.Text = "";
-            latestDisplay.FontWeight = FontWeights.Bold;
-            latestDisplay.FontSize = 14;
-            latestDisplay.VerticalAlignment = VerticalAlignment.Center;
-            latestDisplay.ToolTip = "After a check, this displays last tracked info.";
-            latestDock.Children.Add(latestDisplay);
-            editLatestVersion = latestDisplay;
+			TextBlock startLabel = new TextBlock();
+			startLabel.Text = "Version Start String:";
+			startLabelDock.Children.Add(startLabel);
 
-            fieldsPanel.Children.Add(latestDock);
+			trackSettingsFieldsPanel.Children.Add(startLabelDock);
 
-            // Metadata fields
-            editReleaseDate = AddSettingsField(fieldsPanel, "Release Date:");
-            editReleaseDate.ToolTip = "Shows the current version release date.";
-            editPublisherName = AddSettingsField(fieldsPanel, "Publisher Name:");
-            editPublisherName.ToolTip = "Used to display info from SPS files.";
-            editSuiteName = AddSettingsField(fieldsPanel, "Suite Name:");
-            editSuiteName.ToolTip = "Used to display info from SPS files.";
+			DockPanel startDock = new DockPanel();
+			startDock.Margin = new Thickness(0, 0, 0, 8);
+
+			editStartString = new TextBox();
+			editStartString.Height = 60;
+			editStartString.AcceptsReturn = true;
+			editStartString.TextWrapping = TextWrapping.Wrap;
+			editStartString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+			editStartString.ToolTip = "Enter unique identifier for the start string.";
+			startDock.Children.Add(editStartString);
+			trackSettingsFieldsPanel.Children.Add(startDock);
+			editStartString.TextChanged += (s, ev) =>
+			{
+			    if (!isLoadingFields)
+			        MarkDirty();
+			};
+
+			// Version Stop String with position text
+			DockPanel stopLabelDock = new DockPanel();
+			stopLabelDock.Margin = new Thickness(0, 0, 0, 4);
+
+			stopPositionText = new TextBlock();
+			stopPositionText.Text = "";
+			stopPositionText.Foreground = Brushes.Gray;
+			stopPositionText.FontSize = 11;
+			stopPositionText.HorizontalAlignment = HorizontalAlignment.Right;
+			DockPanel.SetDock(stopPositionText, Dock.Right);
+			stopLabelDock.Children.Add(stopPositionText);
+
+			TextBlock stopLabel = new TextBlock();
+			stopLabel.Text = "Version Stop String:";
+			stopLabelDock.Children.Add(stopLabel);
+
+			trackSettingsFieldsPanel.Children.Add(stopLabelDock);
+
+			DockPanel stopDock = new DockPanel();
+			stopDock.Margin = new Thickness(0, 0, 0, 8);
+
+			editStopString = new TextBox();
+			editStopString.Height = 60;
+			editStopString.AcceptsReturn = true;
+			editStopString.TextWrapping = TextWrapping.Wrap;
+			editStopString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+			editStopString.ToolTip = "Enter a string that follows info to be tracked.";
+			stopDock.Children.Add(editStopString);
+			trackSettingsFieldsPanel.Children.Add(stopDock);
+
+			editStopString.TextChanged += (s, ev) =>
+			{
+			    if (!isLoadingFields)
+			    {
+			        MarkDirty();
+			        if (currentTrackItem != null)
+			            currentTrackItem.StopString = editStopString.Text;
+			    }
+			};
+
+			// Release Date Start String with position text
+			DockPanel dateStartLabelDock = new DockPanel();
+			dateStartLabelDock.Margin = new Thickness(0, 0, 0, 4);
+
+			dateStartPositionText = new TextBlock();
+			dateStartPositionText.Text = "";
+			dateStartPositionText.Foreground = Brushes.Gray;
+			dateStartPositionText.FontSize = 11;
+			dateStartPositionText.HorizontalAlignment = HorizontalAlignment.Right;
+			DockPanel.SetDock(dateStartPositionText, Dock.Right);
+			dateStartLabelDock.Children.Add(dateStartPositionText);
+
+			TextBlock dateStartLabel = new TextBlock();
+			dateStartLabel.Text = "Release Date Start String:";
+			dateStartLabelDock.Children.Add(dateStartLabel);
+
+			trackSettingsFieldsPanel.Children.Add(dateStartLabelDock);
+
+			DockPanel dateStartDock = new DockPanel();
+			dateStartDock.Margin = new Thickness(0, 0, 0, 8);
+
+			editReleaseDateStartString = new TextBox();
+			editReleaseDateStartString.Height = 60;
+			editReleaseDateStartString.AcceptsReturn = true;
+			editReleaseDateStartString.TextWrapping = TextWrapping.Wrap;
+			editReleaseDateStartString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+			editReleaseDateStartString.Tag = "ThemeTextBox";
+			editReleaseDateStartString.ToolTip = "Enter unique identifier for the release date start string.";
+			editReleaseDateStartString.TextChanged += (s, ev) =>
+			{
+			    if (!isLoadingFields) MarkDirty();
+			};
+			dateStartDock.Children.Add(editReleaseDateStartString);
+			trackSettingsFieldsPanel.Children.Add(dateStartDock);
+
+			// Release Date Stop String with position text
+			DockPanel dateStopLabelDock = new DockPanel();
+			dateStopLabelDock.Margin = new Thickness(0, 0, 0, 4);
+
+			dateStopPositionText = new TextBlock();
+			dateStopPositionText.Text = "";
+			dateStopPositionText.Foreground = Brushes.Gray;
+			dateStopPositionText.FontSize = 11;
+			dateStopPositionText.HorizontalAlignment = HorizontalAlignment.Right;
+			DockPanel.SetDock(dateStopPositionText, Dock.Right);
+			dateStopLabelDock.Children.Add(dateStopPositionText);
+
+			TextBlock dateStopLabel = new TextBlock();
+			dateStopLabel.Text = "Release Date Stop String:";
+			dateStopLabelDock.Children.Add(dateStopLabel);
+
+			trackSettingsFieldsPanel.Children.Add(dateStopLabelDock);
+
+			DockPanel dateStopDock = new DockPanel();
+			dateStopDock.Margin = new Thickness(0, 0, 0, 8);
+
+			editReleaseDateStopString = new TextBox();
+			editReleaseDateStopString.Height = 60;
+			editReleaseDateStopString.AcceptsReturn = true;
+			editReleaseDateStopString.TextWrapping = TextWrapping.Wrap;
+			editReleaseDateStopString.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+			editReleaseDateStopString.Tag = "ThemeTextBox";
+			editReleaseDateStopString.ToolTip = "Enter a string that follows the release date.";
+			editReleaseDateStopString.TextChanged += (s, ev) =>
+			{
+			    if (!isLoadingFields) MarkDirty();
+			};
+			dateStopDock.Children.Add(editReleaseDateStopString);
+			trackSettingsFieldsPanel.Children.Add(dateStopDock);
+
+			trackSettingsBorder.Child = trackSettingsFieldsPanel;
+			fieldsPanel.Children.Add(trackSettingsBorder);
 
             scrollArea.Content = fieldsPanel;
             trackSettingsPanel.Children.Add(scrollArea);
@@ -1148,7 +1265,7 @@ namespace ElementalTracker
             sourceContextMenu.Items.Add(new Separator());
 
             MenuItem menuSetStartString = new MenuItem();
-            menuSetStartString.Header = "Set as Start String";
+            menuSetStartString.Header = "Set Version Start String";
             menuSetStartString.Click += (s, ev) =>
             {
                 string selected = sourceView.Selection.Text.Trim();
@@ -1164,7 +1281,7 @@ namespace ElementalTracker
             sourceContextMenu.Items.Add(menuSetStartString);
 
             MenuItem menuSetStopString = new MenuItem();
-            menuSetStopString.Header = "Set as Stop String";
+            menuSetStopString.Header = "Set Version Stop String";
             menuSetStopString.Click += (s, ev) =>
             {
                 string selected = sourceView.Selection.Text.Trim();
@@ -1179,8 +1296,40 @@ namespace ElementalTracker
             };
             sourceContextMenu.Items.Add(menuSetStopString);
 
+			MenuItem menuSetDateStartString = new MenuItem();
+			menuSetDateStartString.Header = "Set Date Start String";
+			menuSetDateStartString.Click += (s, ev) =>
+			{
+			    string selected = sourceView.Selection.Text.Trim();
+			    if (string.IsNullOrEmpty(selected)) return;
+
+			    editReleaseDateStartString.Text = selected;
+			    MarkDirty();
+			    statusFile.Text = "Date Start String set from selection";
+
+			    if (!string.IsNullOrEmpty(currentSource))
+			        DisplaySource(currentSource);
+			};
+			sourceContextMenu.Items.Add(menuSetDateStartString);
+
+			MenuItem menuSetDateStopString = new MenuItem();
+			menuSetDateStopString.Header = "Set Date Stop String";
+			menuSetDateStopString.Click += (s, ev) =>
+			{
+			    string selected = sourceView.Selection.Text.Trim();
+			    if (string.IsNullOrEmpty(selected)) return;
+
+			    editReleaseDateStopString.Text = selected;
+			    MarkDirty();
+			    statusFile.Text = "Date Stop String set from selection";
+
+			    if (!string.IsNullOrEmpty(currentSource))
+			        DisplaySource(currentSource);
+			};
+			sourceContextMenu.Items.Add(menuSetDateStopString);
+
             MenuItem menuAddReleaseDate = new MenuItem();
-            menuAddReleaseDate.Header = "Set to Release Date";
+            menuAddReleaseDate.Header = "Set Release Date";
             menuAddReleaseDate.Click += (s, ev) =>
             {
                 string selected = sourceView.Selection.Text.Trim();
@@ -1193,7 +1342,7 @@ namespace ElementalTracker
             sourceContextMenu.Items.Add(menuAddReleaseDate);
 
             MenuItem menuSetDownloadUrl = new MenuItem();
-            menuSetDownloadUrl.Header = "Set as Download URL";
+            menuSetDownloadUrl.Header = "Set Download URL";
             menuSetDownloadUrl.Click += (s, ev) =>
             {
                 string selected = sourceView.Selection.Text.Trim();
@@ -1215,6 +1364,8 @@ namespace ElementalTracker
                 menuCopy.IsEnabled = hasSelection;
                 menuSetStartString.IsEnabled = hasSelection;
                 menuSetStopString.IsEnabled = hasSelection;
+                menuSetDateStartString.IsEnabled = hasSelection;
+				menuSetDateStopString.IsEnabled = hasSelection;
 
                 if (hasSelection && LooksLikeDate(selectedText))
                 {
@@ -1340,7 +1491,7 @@ namespace ElementalTracker
             editorGroupPanel.Children.Add(editorLabel);
 
             TextBlock editorHint = new TextBlock();
-            editorHint.Text = "Path to a text editor for opening .track files. Can be relative to app folder. Leave blank for system default.";
+            editorHint.Text = "Custom text editor path for .track files. Can be relative to app folder. If blank, uses system default.";
             editorHint.Foreground = Brushes.Gray;
             editorHint.FontSize = 11;
             editorHint.TextWrapping = TextWrapping.Wrap;
@@ -1369,6 +1520,78 @@ namespace ElementalTracker
             editorBorder.Child = editorGroupPanel;
             appSettingsPanel.Children.Add(editorBorder);
 
+			// Default Track Mode setting (bordered)
+			Border trackModeBorder = new Border();
+			trackModeBorder.BorderBrush = Brushes.Gray;
+			trackModeBorder.BorderThickness = new Thickness(1);
+			trackModeBorder.CornerRadius = new CornerRadius(4);
+			trackModeBorder.Padding = new Thickness(10);
+			trackModeBorder.Margin = new Thickness(0, 0, 0, 16);
+
+			StackPanel trackModeGroupPanel = new StackPanel();
+
+			TextBlock trackModeLabel = new TextBlock();
+			trackModeLabel.Text = "Default Track Mode:";
+			trackModeLabel.FontWeight = FontWeights.Bold;
+			trackModeLabel.Margin = new Thickness(0, 0, 0, 4);
+			trackModeLabel.Tag = "ThemeGroupHeader";
+			trackModeGroupPanel.Children.Add(trackModeLabel);
+
+			TextBlock trackModeHint = new TextBlock();
+			trackModeHint.Text = "Sets the default mode for new tracks. HTML checks the raw page source; Text uses the browser-rendered text. Each track remembers its own mode after creation.";
+			trackModeHint.Foreground = Brushes.Gray;
+			trackModeHint.FontSize = 11;
+			trackModeHint.TextWrapping = TextWrapping.Wrap;
+			trackModeHint.Margin = new Thickness(0, 0, 0, 8);
+			trackModeGroupPanel.Children.Add(trackModeHint);
+
+			defaultTrackModeCombo = new ComboBox();
+			defaultTrackModeCombo.Width = 150;
+			defaultTrackModeCombo.HorizontalAlignment = HorizontalAlignment.Left;
+			defaultTrackModeCombo.Items.Add("HTML (page source)");
+			defaultTrackModeCombo.Items.Add("Text (rendered text)");
+			defaultTrackModeCombo.SelectedIndex = (windowSettings.DefaultTrackMode == "text") ? 1 : 0;
+			defaultTrackModeCombo.SelectionChanged += (s, ev) =>
+			{
+			    windowSettings.DefaultTrackMode = (defaultTrackModeCombo.SelectedIndex == 1) ? "text" : "html";
+			};
+			trackModeGroupPanel.Children.Add(defaultTrackModeCombo);
+
+			trackModeBorder.Child = trackModeGroupPanel;
+			appSettingsPanel.Children.Add(trackModeBorder);
+
+			// Default Publisher Name setting (bordered)
+			Border publisherBorder = new Border();
+			publisherBorder.BorderBrush = Brushes.Gray;
+			publisherBorder.BorderThickness = new Thickness(1);
+			publisherBorder.CornerRadius = new CornerRadius(4);
+			publisherBorder.Padding = new Thickness(10);
+			publisherBorder.Margin = new Thickness(0, 0, 0, 16);
+
+			StackPanel publisherGroupPanel = new StackPanel();
+
+			TextBlock publisherLabel = new TextBlock();
+			publisherLabel.Text = "Default Publisher Name:";
+			publisherLabel.FontWeight = FontWeights.Bold;
+			publisherLabel.Margin = new Thickness(0, 0, 0, 4);
+			publisherLabel.Tag = "ThemeGroupHeader";
+			publisherGroupPanel.Children.Add(publisherLabel);
+
+			TextBlock publisherHint = new TextBlock();
+			publisherHint.Text = "Used to auto-fill the Publisher Name field when creating new track files.";
+			publisherHint.Foreground = Brushes.Gray;
+			publisherHint.FontSize = 11;
+			publisherHint.TextWrapping = TextWrapping.Wrap;
+			publisherHint.Margin = new Thickness(0, 0, 0, 4);
+			publisherGroupPanel.Children.Add(publisherHint);
+
+			editDefaultPublisherName = new TextBox();
+			editDefaultPublisherName.Text = windowSettings.DefaultPublisherName ?? "";
+			publisherGroupPanel.Children.Add(editDefaultPublisherName);
+
+			publisherBorder.Child = publisherGroupPanel;
+			appSettingsPanel.Children.Add(publisherBorder);
+
             // SPS Settings group (bordered)
             Border spsBorder = new Border();
             spsBorder.BorderBrush = Brushes.Gray;
@@ -1387,7 +1610,7 @@ namespace ElementalTracker
             spsGroupPanel.Children.Add(syMenuLabel);
 
             TextBlock syMenuHint = new TextBlock();
-            syMenuHint.Text = "Path to the SyMenu SPSSuite folder (e.g. SyMenu\\ProgramFiles\\SPSSuite). Used for SPS ReBuild.";
+            syMenuHint.Text = "Path to the SyMenu SPSSuite folder (e.g. SyMenu\\ProgramFiles\\SPSSuite). Used for SPS integration.";
             syMenuHint.Foreground = Brushes.Gray;
             syMenuHint.FontSize = 11;
             syMenuHint.TextWrapping = TextWrapping.Wrap;
@@ -1469,7 +1692,7 @@ namespace ElementalTracker
             btnSpsScanCache.FontSize = 17;
             btnSpsScanCache.Padding = new Thickness(7, 4, 7, 4);
             btnSpsScanCache.Margin = new Thickness(0, 0, 8, 0);
-            btnSpsScanCache.ToolTip = "Scan SyMenu SPS cache and rebuild category from SPS data";
+            btnSpsScanCache.ToolTip = "Scan SyMenu SPS cache(s) and rebuild category from SPS data";
             btnSpsScanCache.Click += ReBuild_Click;
             spsButtonPanel.Children.Add(btnSpsScanCache);
 
@@ -2586,6 +2809,10 @@ namespace ElementalTracker
 			    ClearDirty();
 			    statusFile.Text = "Saved: " + currentTrackItem.TrackName;
 
+				currentTrackItem.ReleaseDateStatus = "";
+				currentTrackItem.LatestReleaseDate = "";
+				editReleaseDate.Background = new SolidColorBrush(currentTheme.TextBoxBackground);
+
 			    itemList.SelectedItem = clickedItem;
 			}
             else if (result == MessageBoxResult.No)
@@ -2624,6 +2851,8 @@ namespace ElementalTracker
 		    currentTrackItem.TrackURL = editTrackURL.Text;
 		    currentTrackItem.StartString = editStartString.Text;
 		    currentTrackItem.StopString = editStopString.Text;
+		    currentTrackItem.ReleaseDateStartString = editReleaseDateStartString.Text;
+			currentTrackItem.ReleaseDateStopString = editReleaseDateStopString.Text;
 		    currentTrackItem.DownloadURL = editDownloadURL.Text;
 		    currentTrackItem.Version = editVersion.Text;
 
@@ -2664,6 +2893,16 @@ namespace ElementalTracker
             editVersion.Text = selected.Version;
             UpdateVersionDisplay();
             editReleaseDate.Text = selected.ReleaseDate;
+            editReleaseDateStartString.Text = selected.ReleaseDateStartString ?? "";
+			editReleaseDateStopString.Text = selected.ReleaseDateStopString ?? "";
+			if (selected.ReleaseDateStatus == "changed" || selected.ReleaseDateStatus == "new")
+			{
+			    editReleaseDate.Background = new SolidColorBrush(currentTheme.ReleaseDateChangedBackground);
+			}
+			else
+			{
+			    editReleaseDate.Background = new SolidColorBrush(currentTheme.TextBoxBackground);
+			}
             editPublisherName.Text = selected.PublisherName;
             editSuiteName.Text = selected.SuiteName;
 
@@ -3046,6 +3285,15 @@ namespace ElementalTracker
                         }
                     }
 
+					// Auto-update release date if changed
+					if (!string.IsNullOrEmpty(item.LatestReleaseDate))
+					{
+					    if (item.ReleaseDateStatus == "new" || item.ReleaseDateStatus == "changed")
+					    {
+					        item.ReleaseDate = item.LatestReleaseDate;
+					    }
+					}
+
                     // Small delay to avoid hammering servers
                     await System.Threading.Tasks.Task.Delay(500);
                 }
@@ -3122,6 +3370,14 @@ namespace ElementalTracker
                 editVersion.Text = currentTrackItem.Version;
                 UpdateVersionDisplay();
                 editReleaseDate.Text = currentTrackItem.ReleaseDate;
+				if (currentTrackItem.ReleaseDateStatus == "changed" || currentTrackItem.ReleaseDateStatus == "new")
+				{
+				    editReleaseDate.Background = new SolidColorBrush(currentTheme.ReleaseDateChangedBackground);
+				}
+				else
+				{
+				    editReleaseDate.Background = new SolidColorBrush(currentTheme.TextBoxBackground);
+				}
                 isLoadingFields = false;
             }
 
@@ -3423,16 +3679,16 @@ namespace ElementalTracker
 		        btnSaveTrackAs.IsEnabled = isDirty;
 		        btnSaveTrackAs.Opacity = isDirty ? enabledOpacity : disabledOpacity;
 		    }
-		    if (btnSaveMain != null)
-		    {
-		        btnSaveMain.IsEnabled = isDirty;
-		        btnSaveMain.Opacity = isDirty ? enabledOpacity : disabledOpacity;
-		    }
-		    if (btnSaveAsMain != null)
-		    {
-		        btnSaveAsMain.IsEnabled = isDirty;
-		        btnSaveAsMain.Opacity = isDirty ? enabledOpacity : disabledOpacity;
-		    }
+			if (btnSave != null)
+			{
+			    btnSave.IsEnabled = isDirty;
+			    btnSave.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+			}
+			if (btnSaveAs != null)
+			{
+			    btnSaveAs.IsEnabled = isDirty;
+			    btnSaveAs.Opacity = isDirty ? enabledOpacity : disabledOpacity;
+			}
 
 		    // Save All reflects the WHOLE CATEGORY
 		    if (btnSaveAll != null)
@@ -3658,7 +3914,10 @@ namespace ElementalTracker
 				itemList.ItemsSource = null;
 				itemList.ItemsSource = currentItems;
 				if (selectedIndex >= 0)
+				{
 				    itemList.SelectedIndex = selectedIndex;
+				    itemList.ScrollIntoView(itemList.SelectedItem);
+				}
 				suppressAutoDownload = false;
 				isLoadingFields = false;
 
@@ -3703,6 +3962,8 @@ namespace ElementalTracker
 			    editVersion.Text = selected.LatestVersion;
 			}
             selected.ReleaseDate = editReleaseDate.Text;
+            selected.ReleaseDateStartString = editReleaseDateStartString.Text;
+			selected.ReleaseDateStopString = editReleaseDateStopString.Text;
             selected.PublisherName = editPublisherName.Text;
             selected.SuiteName = editSuiteName.Text;
 
@@ -3756,8 +4017,11 @@ namespace ElementalTracker
                 int selectedIndex = currentItems.IndexOf(selected);
                 itemList.ItemsSource = null;
                 itemList.ItemsSource = currentItems;
-                if (selectedIndex >= 0)
-                    itemList.SelectedIndex = selectedIndex;
+				if (selectedIndex >= 0)
+				{
+				    itemList.SelectedIndex = selectedIndex;
+				    itemList.ScrollIntoView(itemList.SelectedItem);
+				}
                 suppressAutoDownload = false;
                 isLoadingFields = false;
 
@@ -4056,9 +4320,12 @@ namespace ElementalTracker
             newItem.DownloadURL = editDownloadURL.Text;
             newItem.Version = editVersion.Text;
             newItem.ReleaseDate = editReleaseDate.Text;
-            newItem.PublisherName = editPublisherName.Text;
+            newItem.PublisherName = string.IsNullOrWhiteSpace(editPublisherName.Text)
+			    ? (windowSettings.DefaultPublisherName ?? "")
+			    : editPublisherName.Text;
             newItem.SuiteName = editSuiteName.Text;
             newItem.CreationDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+            newItem.TrackMode = windowSettings.DefaultTrackMode ?? "html";
 
             try
             {
@@ -4076,7 +4343,7 @@ namespace ElementalTracker
 
 		private void ClearTrackFields()
 		{
-		    isLoadingFields = true;    // ADD THIS
+		    isLoadingFields = true;
 		    currentTrackItem = null;
 		    editName.Text = "";
 		    editTrackURL.Text = "";
@@ -4088,9 +4355,11 @@ namespace ElementalTracker
 		    editLatestVersion.Foreground = Brushes.Gray;
 		    btnUpdateVersion.IsEnabled = false;
 		    editReleaseDate.Text = "";
+		    editReleaseDateStartString.Text = "";
+			editReleaseDateStopString.Text = "";
 		    editPublisherName.Text = "";
 		    editSuiteName.Text = "";
-		    isLoadingFields = false;   // ADD THIS
+		    isLoadingFields = false;
 		}
 
         private void UpdateVersion_Click(object sender, RoutedEventArgs e)
@@ -4162,8 +4431,11 @@ namespace ElementalTracker
                 suppressAutoDownload = true;
                 itemList.ItemsSource = null;
                 itemList.ItemsSource = currentItems;
-                if (selectedIndex >= 0)
-                    itemList.SelectedIndex = selectedIndex;
+				if (selectedIndex >= 0)
+				{
+				    itemList.SelectedIndex = selectedIndex;
+				    itemList.ScrollIntoView(itemList.SelectedItem);
+				}
                 suppressAutoDownload = false;
 
                 UpdateVersionDisplay();
@@ -4582,6 +4854,7 @@ namespace ElementalTracker
                 windowSettings.SourceFontSize = sourceView.FontSize;
                 SaveColumnSettings();
                 windowSettings.EditorPath = editEditorPath.Text.Trim();
+                windowSettings.DefaultPublisherName = editDefaultPublisherName.Text.Trim();
                 if (editSyMenuPath != null)
                     windowSettings.SpsSuiteRootPath = editSyMenuPath.Text.Trim();
                 windowSettings.TabThemeVisible = rightTabs.Items.Contains(themeTabItem);
@@ -5822,6 +6095,22 @@ namespace ElementalTracker
 		    // ---- Track Settings Panel ----
 		    ApplyThemeToPanel(trackSettingsPanel, theme);
 
+			// Theme the Track Data / Track Settings group borders and headers
+			if (trackSettingsScrollArea != null && trackSettingsScrollArea.Content is StackPanel fp)
+			{
+			    foreach (var child in fp.Children)
+			    {
+			        if (child is TextBlock tb && (tb.Text == "Track Data" || tb.Text == "Track Settings"))
+			        {
+			            tb.Foreground = new SolidColorBrush(theme.TabSelectedForeground);
+			        }
+			        else if (child is Border bdr && (bdr.Tag as string == "TrackDataBorder" || bdr.Tag as string == "TrackSettingsBorder"))
+			        {
+			            bdr.BorderBrush = new SolidColorBrush(theme.SplitterColor);
+			        }
+			    }
+			}
+
 			// Theme the Track Settings label and header
 			if (trackSettingsLabel != null)
 			{
@@ -6021,6 +6310,15 @@ namespace ElementalTracker
 			editEditorPath.CaretBrush = new SolidColorBrush(theme.TextBoxForeground);
 			editEditorPath.BorderBrush = new SolidColorBrush(theme.TabBackground);
 
+			// ---- App Settings default publisher name field ----
+			if (editDefaultPublisherName != null)
+			{
+			    editDefaultPublisherName.Background = new SolidColorBrush(theme.TextBoxBackground);
+			    editDefaultPublisherName.Foreground = new SolidColorBrush(theme.TextBoxForeground);
+			    editDefaultPublisherName.CaretBrush = new SolidColorBrush(theme.TextBoxForeground);
+			    editDefaultPublisherName.BorderBrush = new SolidColorBrush(theme.TabBackground);
+			}
+
 			// ---- App Settings SyMenu path field ----
 			if (editSyMenuPath != null)
 			{
@@ -6037,6 +6335,13 @@ namespace ElementalTracker
 				txtSettingsPublisherFilter.Foreground = new SolidColorBrush(theme.TextBoxForeground);
 				txtSettingsPublisherFilter.CaretBrush = new SolidColorBrush(theme.TextBoxForeground);
 				txtSettingsPublisherFilter.BorderBrush = new SolidColorBrush(theme.TabBackground);
+			}
+
+			if (defaultTrackModeCombo != null)
+			{
+			    Style comboStyle = CreateThemedComboBoxStyle(theme);
+			    if (comboStyle != null)
+			        defaultTrackModeCombo.Style = comboStyle;
 			}
 
 		    // ---- Source View ----
@@ -7634,6 +7939,8 @@ namespace ElementalTracker
                 copy.ReleaseDate = editReleaseDate.Text;
                 copy.PublisherName = editPublisherName.Text;
                 copy.SuiteName = editSuiteName.Text;
+                copy.ReleaseDateStartString = editReleaseDateStartString.Text;
+				copy.ReleaseDateStopString = editReleaseDateStopString.Text;
                 copy.CreationDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
 
                 copy.SaveToFile(newPath);
@@ -7778,8 +8085,11 @@ namespace ElementalTracker
             int selectedIndex = itemList.SelectedIndex;
             itemList.ItemsSource = null;
             itemList.ItemsSource = currentItems;
-            if (selectedIndex >= 0)
-                itemList.SelectedIndex = selectedIndex;
+			if (selectedIndex >= 0)
+			{
+				itemList.SelectedIndex = selectedIndex;
+				itemList.ScrollIntoView(itemList.SelectedItem);
+			}
             suppressAutoDownload = false;
 
             statusFile.Text = "Save All: " + savedCount + " tracks saved, " +
@@ -8035,6 +8345,7 @@ namespace ElementalTracker
                     foreach (TrackItem item in suiteItems)
                     {
                         item.SuiteName = suite.Name;
+                        item.TrackMode = windowSettings.DefaultTrackMode ?? "html";
                     }
 
                     allSpsItems.AddRange(suiteItems);
@@ -8803,6 +9114,9 @@ namespace ElementalTracker
                 editTrackURL.Text = url;
             }
 
+			// Switch to Source tab
+			rightTabs.SelectedIndex = 0;
+
             statusFile.Text = "Downloading: " + url;
             statusProgress.IsIndeterminate = true;
 
@@ -8848,8 +9162,11 @@ namespace ElementalTracker
                     suppressAutoDownload = true;
                     itemList.ItemsSource = null;
                     itemList.ItemsSource = currentItems;
-                    if (selectedIndex >= 0)
-                        itemList.SelectedIndex = selectedIndex;
+					if (selectedIndex >= 0)
+					{
+					    itemList.SelectedIndex = selectedIndex;
+					    itemList.ScrollIntoView(itemList.SelectedItem);
+					}
                     suppressAutoDownload = false;
 
                     // Update UI fields immediately
@@ -8919,8 +9236,11 @@ namespace ElementalTracker
                             suppressAutoDownload = true;
                             itemList.ItemsSource = null;
                             itemList.ItemsSource = currentItems;
-                            if (selectedIndex >= 0)
-                                itemList.SelectedIndex = selectedIndex;
+							if (selectedIndex >= 0)
+							{
+							    itemList.SelectedIndex = selectedIndex;
+							    itemList.ScrollIntoView(itemList.SelectedItem);
+							}
                             suppressAutoDownload = false;
 
                             editVersion.Text = selected.Version;
@@ -8982,396 +9302,423 @@ namespace ElementalTracker
             }
         }
 
-        private void DisplaySource(string source)
+		private void FindHighlightPositions(string normalizedSource, string startStr, string stopStr,
+		    out int startIdx, out int startLen, out int stopIdx, out int stopLen)
+		{
+		    startIdx = -1; startLen = 0; stopIdx = -1; stopLen = 0;
+
+		    if (string.IsNullOrEmpty(startStr)) return;
+
+		    if (TrackItem.IsRegexPattern(startStr))
+		    {
+		        var match = TrackItem.FindRegexMatch(normalizedSource, startStr, 0);
+		        if (match != null && match.Success)
+		        {
+		            startIdx = match.Index;
+		            startLen = match.Length;
+		        }
+		    }
+		    else
+		    {
+		        string ns = startStr.Replace("\r\n", "\n").Replace("\r", "\n");
+		        startIdx = normalizedSource.IndexOf(ns, StringComparison.Ordinal);
+		        startLen = ns.Length;
+
+		        if (startIdx < 0)
+		        {
+		            string cs = NormalizeWhitespace(normalizedSource);
+		            string cst = NormalizeWhitespace(ns);
+		            int ci = cs.IndexOf(cst, StringComparison.Ordinal);
+		            if (ci >= 0)
+		            {
+		                startIdx = MapNormalizedToRaw(normalizedSource, ci);
+		                int endRaw = MapNormalizedToRaw(normalizedSource, ci + cst.Length);
+		                startLen = endRaw - startIdx;
+		            }
+		        }
+		    }
+
+		    if (startIdx < 0 || string.IsNullOrEmpty(stopStr)) return;
+
+		    int searchAfter = startIdx + startLen;
+
+		    if (TrackItem.IsRegexPattern(stopStr))
+		    {
+		        var match = TrackItem.FindRegexMatch(normalizedSource, stopStr, searchAfter);
+		        if (match != null && match.Success)
+		        {
+		            stopIdx = match.Index;
+		            stopLen = match.Length;
+		        }
+		    }
+		    else
+		    {
+		        string ns = stopStr.Replace("\r\n", "\n").Replace("\r", "\n");
+		        stopIdx = normalizedSource.IndexOf(ns, searchAfter, StringComparison.Ordinal);
+		        stopLen = ns.Length;
+
+		        if (stopIdx < 0)
+		        {
+		            string cs = NormalizeWhitespace(normalizedSource);
+		            string cst = NormalizeWhitespace(ns);
+		            string collapsedBefore = NormalizeWhitespace(normalizedSource.Substring(0, searchAfter));
+		            int collapsedSearchAfter = collapsedBefore.Length;
+		            int ci = cs.IndexOf(cst, collapsedSearchAfter, StringComparison.Ordinal);
+		            if (ci >= 0)
+		            {
+		                stopIdx = MapNormalizedToRaw(normalizedSource, ci);
+		                int endRaw = MapNormalizedToRaw(normalizedSource, ci + cst.Length);
+		                stopLen = endRaw - stopIdx;
+		            }
+		        }
+		    }
+		}
+
+		private void DisplaySource(string source)
+		{
+		    sourceView.Document.Blocks.Clear();
+
+		    if (string.IsNullOrEmpty(source))
+		        return;
+
+		    Paragraph para = new Paragraph();
+		    para.FontFamily = new FontFamily("Consolas");
+		    para.FontSize = sourceView.FontSize;
+
+		    string startStr = editStartString.Text ?? "";
+		    string stopStr = editStopString.Text ?? "";
+		    string dateStartStr = editReleaseDateStartString.Text ?? "";
+		    string dateStopStr = editReleaseDateStopString.Text ?? "";
+
+		    try
+		    {
+		        string normalizedSource = source.Replace("\r\n", "\n").Replace("\r", "\n");
+
+		        // Find version start/stop positions
+		        int vStartIdx, vStartLen, vStopIdx, vStopLen;
+		        FindHighlightPositions(normalizedSource, startStr, stopStr,
+		            out vStartIdx, out vStartLen, out vStopIdx, out vStopLen);
+
+		        // Find date start/stop positions
+		        int dStartIdx, dStartLen, dStopIdx, dStopLen;
+		        FindHighlightPositions(normalizedSource, dateStartStr, dateStopStr,
+		            out dStartIdx, out dStartLen, out dStopIdx, out dStopLen);
+
+		        // Build highlight regions: (start, end, color)
+		        var regions = new List<(int start, int end, SolidColorBrush color)>();
+
+		        // Version regions
+		        if (vStartIdx >= 0 && vStartLen > 0 && vStartIdx + vStartLen <= normalizedSource.Length)
+		        {
+		            regions.Add((vStartIdx, vStartIdx + vStartLen,
+		                new SolidColorBrush(currentTheme.SourceStartStringColor)));
+
+		            if (vStopIdx >= 0 && vStopLen > 0 && vStopIdx + vStopLen <= normalizedSource.Length)
+		            {
+		                regions.Add((vStartIdx + vStartLen, vStopIdx,
+		                    new SolidColorBrush(currentTheme.SourceInfoStringColor)));
+		                regions.Add((vStopIdx, vStopIdx + vStopLen,
+		                    new SolidColorBrush(currentTheme.SourceStopStringColor)));
+		            }
+		        }
+
+		        // Date regions
+		        if (dStartIdx >= 0 && dStartLen > 0 && dStartIdx + dStartLen <= normalizedSource.Length)
+		        {
+		            regions.Add((dStartIdx, dStartIdx + dStartLen,
+		                new SolidColorBrush(currentTheme.SourceStartStringColor)));
+
+		            if (dStopIdx >= 0 && dStopLen > 0 && dStopIdx + dStopLen <= normalizedSource.Length)
+		            {
+		                regions.Add((dStartIdx + dStartLen, dStopIdx,
+		                    new SolidColorBrush(currentTheme.SourceInfoStringColor)));
+		                regions.Add((dStopIdx, dStopIdx + dStopLen,
+		                    new SolidColorBrush(currentTheme.SourceStopStringColor)));
+		            }
+		        }
+
+		        // Sort by start position
+		        regions.Sort((a, b) => a.start.CompareTo(b.start));
+
+		        // Render source with highlighting
+		        if (regions.Count > 0)
+		        {
+		            int pos = 0;
+		            foreach (var region in regions)
+		            {
+		                if (region.start < pos) continue; // skip overlapping
+		                if (region.end <= region.start) continue; // skip empty
+
+		                // Unhighlighted text before this region
+		                if (region.start > pos)
+		                {
+		                    foreach (Run r in CreateSyntaxHighlightedRuns(
+		                        normalizedSource.Substring(pos, region.start - pos)))
+		                        para.Inlines.Add(r);
+		                }
+
+		                // Highlighted region
+		                Run highlightRun = new Run(
+		                    normalizedSource.Substring(region.start, region.end - region.start));
+		                highlightRun.Foreground = region.color;
+		                highlightRun.FontWeight = FontWeights.Bold;
+		                para.Inlines.Add(highlightRun);
+
+		                pos = region.end;
+		            }
+
+		            // Remaining text after last region
+		            if (pos < normalizedSource.Length)
+		            {
+		                foreach (Run r in CreateSyntaxHighlightedRuns(
+		                    normalizedSource.Substring(pos)))
+		                    para.Inlines.Add(r);
+		            }
+		        }
+		        else
+		        {
+		            // No highlighting — plain syntax coloring
+		            foreach (Run r in CreateSyntaxHighlightedRuns(normalizedSource))
+		                para.Inlines.Add(r);
+		        }
+
+		        // Update version position texts
+		        if (vStartIdx >= 0 && vStopIdx >= 0)
+		        {
+		            startPositionText.Text = "pos: " + vStartIdx;
+		            startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+		            stopPositionText.Text = "pos: " + vStopIdx;
+		            stopPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+		        }
+		        else if (vStartIdx >= 0)
+		        {
+		            startPositionText.Text = "pos: " + vStartIdx;
+		            startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+		            stopPositionText.Text = !string.IsNullOrEmpty(stopStr) ? "NOT FOUND" : "";
+		            stopPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
+		        }
+		        else if (!string.IsNullOrEmpty(startStr))
+		        {
+		            startPositionText.Text = "NOT FOUND";
+		            startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
+		            stopPositionText.Text = "";
+		        }
+		        else
+		        {
+		            startPositionText.Text = "";
+		            stopPositionText.Text = "";
+		        }
+
+		        // Update date position texts
+		        if (dStartIdx >= 0 && dStopIdx >= 0)
+		        {
+		            dateStartPositionText.Text = "pos: " + dStartIdx;
+		            dateStartPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+		            dateStopPositionText.Text = "pos: " + dStopIdx;
+		            dateStopPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+		        }
+		        else if (dStartIdx >= 0)
+		        {
+		            dateStartPositionText.Text = "pos: " + dStartIdx;
+		            dateStartPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+		            dateStopPositionText.Text = !string.IsNullOrEmpty(dateStopStr) ? "NOT FOUND" : "";
+		            dateStopPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
+		        }
+		        else if (!string.IsNullOrEmpty(dateStartStr))
+		        {
+		            dateStartPositionText.Text = "NOT FOUND";
+		            dateStartPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
+		            dateStopPositionText.Text = "";
+		        }
+		        else
+		        {
+		            dateStartPositionText.Text = "";
+		            dateStopPositionText.Text = "";
+		        }
+
+		        // Extract version from version track block
+		        if (vStartIdx >= 0 && vStopIdx >= 0 && vStopIdx + vStopLen <= normalizedSource.Length)
+		        {
+		            int vEnd = vStopIdx + vStopLen;
+		            string trackBlock = normalizedSource.Substring(vStartIdx, vEnd - vStartIdx);
+		            string extractedVersion = TrackItem.ExtractVersion(trackBlock);
+		            if (!string.IsNullOrEmpty(extractedVersion) && currentTrackItem != null)
+		            {
+		                currentTrackItem.LatestVersion = extractedVersion;
+		                UpdateVersionDisplay();
+		            }
+		        }
+		    }
+		    catch (Exception ex)
+		    {
+		        para.Inlines.Clear();
+		        try
+		        {
+		            foreach (Run r in CreateSyntaxHighlightedRuns(source))
+		                para.Inlines.Add(r);
+		        }
+		        catch (Exception)
+		        {
+		            Run fallbackRun = new Run(source);
+		            fallbackRun.Foreground = new SolidColorBrush(currentTheme.SourceTagColor);
+		            para.Inlines.Add(fallbackRun);
+		        }
+
+		        startPositionText.Text = "Error: " + ex.Message;
+		        startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
+		        stopPositionText.Text = "";
+		        dateStartPositionText.Text = "";
+		        dateStopPositionText.Text = "";
+		    }
+
+		    sourceView.Document.Blocks.Add(para);
+
+		    // Scroll to the version start string position
+		    if (!string.IsNullOrEmpty(startStr))
+		    {
+		        try
+		        {
+		            string normalizedForScroll = source.Replace("\r\n", "\n").Replace("\r", "\n");
+		            int scrollIdx = -1;
+
+		            if (TrackItem.IsRegexPattern(startStr))
+		            {
+		                var match = TrackItem.FindRegexMatch(normalizedForScroll, startStr, 0);
+		                if (match != null && match.Success)
+		                    scrollIdx = match.Index;
+		            }
+		            else
+		            {
+		                string normalizedStartForScroll = startStr.Replace("\r\n", "\n").Replace("\r", "\n");
+		                scrollIdx = normalizedForScroll.IndexOf(normalizedStartForScroll,
+		                    StringComparison.Ordinal);
+
+		                if (scrollIdx < 0)
+		                {
+		                    string cs = NormalizeWhitespace(normalizedForScroll);
+		                    string cst = NormalizeWhitespace(normalizedStartForScroll);
+		                    int ci = cs.IndexOf(cst, StringComparison.Ordinal);
+		                    if (ci >= 0)
+		                        scrollIdx = MapNormalizedToRaw(normalizedForScroll, ci);
+		                }
+		            }
+
+		            if (scrollIdx >= 0)
+		            {
+		                ScrollSourceViewToPosition(scrollIdx);
+		            }
+		        }
+		        catch (Exception) { }
+		    }
+		}
+
+		private async void GoToStartString_Click(object sender, RoutedEventArgs e)
+		{
+		    if (string.IsNullOrEmpty(editStartString.Text))
+		    {
+		        statusFile.Text = "Start String is empty";
+		        return;
+		    }
+
+		    // If no source loaded yet, download it first
+		    if (string.IsNullOrEmpty(currentSource) && currentTrackItem != null && !string.IsNullOrWhiteSpace(currentTrackItem.TrackURL))
+		    {
+		        statusFile.Text = "Downloading source...";
+		        string url = currentTrackItem.TrackURL;
+		        if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+		            url = "https://" + url;
+
+		        try
+		        {
+		            SetupHttpHeaders(url);
+		            currentSource = await httpClient.GetStringAsync(url);
+		        }
+		        catch (Exception)
+		        {
+		            statusFile.Text = "Failed to download source";
+		            return;
+		        }
+		    }
+
+		    if (string.IsNullOrEmpty(currentSource))
+		    {
+		        statusFile.Text = "No source loaded";
+		        return;
+		    }
+
+		    // Display source with highlighting
+		    DisplaySource(currentSource);
+
+		    // Switch to Source tab AFTER source is displayed
+		    rightTabs.SelectedIndex = 0;
+
+		    // Now scroll to the start position
+		    string normalizedSource = currentSource.Replace("\r\n", "\n").Replace("\r", "\n");
+		    string searchStr = editStartString.Text;
+		    int idx = -1;
+
+		    if (TrackItem.IsRegexPattern(searchStr))
+		    {
+		        var match = TrackItem.FindRegexMatch(normalizedSource, searchStr, 0);
+		        if (match != null && match.Success)
+		            idx = match.Index;
+		    }
+		    else
+		    {
+		        string normalizedSearch = searchStr.Replace("\r\n", "\n").Replace("\r", "\n");
+		        idx = normalizedSource.IndexOf(normalizedSearch, StringComparison.Ordinal);
+
+		        if (idx < 0)
+		        {
+		            string cs = NormalizeWhitespace(normalizedSource);
+		            string cst = NormalizeWhitespace(normalizedSearch);
+		            int ci = cs.IndexOf(cst, StringComparison.Ordinal);
+		            if (ci >= 0)
+		                idx = MapNormalizedToRaw(normalizedSource, ci);
+		        }
+		    }
+
+		    if (idx < 0)
+		    {
+		        statusFile.Text = "Start String not found in source";
+		        startPositionText.Text = "NOT FOUND";
+		        startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
+		        return;
+		    }
+
+		    startPositionText.Text = "pos: " + idx;
+		    startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+
+		    // Delay slightly to let the tab render before scrolling
+		    await System.Threading.Tasks.Task.Delay(100);
+		    ScrollSourceViewToPosition(idx);
+
+		    string regexNote = TrackItem.IsRegexPattern(searchStr) ? " (regex)" : "";
+		    statusFile.Text = "Start String found at position " + idx + regexNote;
+		}
+
+        private async void GoToStopString_Click(object sender, RoutedEventArgs e)
         {
-            sourceView.Document.Blocks.Clear();
+		    // If no source loaded yet, download it first
+		    if (string.IsNullOrEmpty(currentSource) && currentTrackItem != null && !string.IsNullOrWhiteSpace(currentTrackItem.TrackURL))
+		    {
+		        statusFile.Text = "Downloading source...";
+		        string url = currentTrackItem.TrackURL;
+		        if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+		            url = "https://" + url;
 
-            if (string.IsNullOrEmpty(source))
-                return;
+		        try
+		        {
+		            SetupHttpHeaders(url);
+		            currentSource = await httpClient.GetStringAsync(url);
+		        }
+		        catch (Exception)
+		        {
+		            statusFile.Text = "Failed to download source";
+		            return;
+		        }
+		    }
 
-            Paragraph para = new Paragraph();
-            para.FontFamily = new FontFamily("Consolas");
-            para.FontSize = sourceView.FontSize;
-
-            string startStr = editStartString.Text ?? "";
-            string stopStr = editStopString.Text ?? "";
-
-            try
-            {
-                if (!string.IsNullOrEmpty(startStr) && !string.IsNullOrEmpty(stopStr))
-                {
-                    string normalizedSource = source.Replace("\r\n", "\n").Replace("\r", "\n");
-
-                    // Find start match
-                    int startIdx = -1;
-                    int startLen = 0;
-                    int stopIdx = -1;
-                    int stopLen = 0;
-
-                    bool startIsRegex = TrackItem.IsRegexPattern(startStr);
-                    bool stopIsRegex = TrackItem.IsRegexPattern(stopStr);
-
-                    if (startIsRegex)
-                    {
-                        var match = TrackItem.FindRegexMatch(normalizedSource, startStr, 0);
-                        if (match != null && match.Success)
-                        {
-                            startIdx = match.Index;
-                            startLen = match.Length;
-                        }
-                    }
-                    else
-                    {
-                        string normalizedStart = startStr.Replace("\r\n", "\n").Replace("\r", "\n");
-                        startIdx = normalizedSource.IndexOf(normalizedStart, StringComparison.Ordinal);
-                        startLen = normalizedStart.Length;
-
-                        if (startIdx < 0)
-                        {
-                            string collapsedSource = NormalizeWhitespace(normalizedSource);
-                            string collapsedStart = NormalizeWhitespace(normalizedStart);
-                            int cIdx = collapsedSource.IndexOf(collapsedStart, StringComparison.Ordinal);
-                            if (cIdx >= 0)
-                            {
-                                startIdx = MapNormalizedToRaw(normalizedSource, cIdx);
-                                int startEndRaw = MapNormalizedToRaw(normalizedSource,
-                                    cIdx + collapsedStart.Length);
-                                startLen = startEndRaw - startIdx;
-                            }
-                        }
-                    }
-
-                    // Find stop match
-                    if (startIdx >= 0)
-                    {
-                        int searchAfter = startIdx + startLen;
-
-                        if (stopIsRegex)
-                        {
-                            var match = TrackItem.FindRegexMatch(normalizedSource, stopStr, searchAfter);
-                            if (match != null && match.Success)
-                            {
-                                stopIdx = match.Index;
-                                stopLen = match.Length;
-                            }
-                        }
-                        else
-                        {
-                            string normalizedStop = stopStr.Replace("\r\n", "\n").Replace("\r", "\n");
-                            stopIdx = normalizedSource.IndexOf(normalizedStop, searchAfter,
-                                StringComparison.Ordinal);
-                            stopLen = normalizedStop.Length;
-
-                            if (stopIdx < 0)
-                            {
-                                string collapsedSource = NormalizeWhitespace(normalizedSource);
-                                string collapsedStop = NormalizeWhitespace(normalizedStop);
-                                string collapsedBefore = NormalizeWhitespace(
-                                    normalizedSource.Substring(0, searchAfter));
-                                int collapsedSearchAfter = collapsedBefore.Length;
-
-                                int cIdx = collapsedSource.IndexOf(collapsedStop, collapsedSearchAfter,
-                                    StringComparison.Ordinal);
-                                if (cIdx >= 0)
-                                {
-                                    stopIdx = MapNormalizedToRaw(normalizedSource, cIdx);
-                                    int stopEndRaw = MapNormalizedToRaw(normalizedSource,
-                                        cIdx + collapsedStop.Length);
-                                    stopLen = stopEndRaw - stopIdx;
-                                }
-                            }
-                        }
-                    }
-
-                    // Render with highlighting
-                    if (startIdx >= 0 && stopIdx >= 0 &&
-                        startLen > 0 && stopLen > 0 &&
-                        startIdx + startLen <= normalizedSource.Length &&
-                        stopIdx + stopLen <= normalizedSource.Length)
-                    {
-                        int startEnd = startIdx + startLen;
-                        int stopEnd = stopIdx + stopLen;
-
-                        if (startIdx > 0)
-                        {
-                            foreach (Run r in CreateSyntaxHighlightedRuns(
-                                normalizedSource.Substring(0, startIdx)))
-                                para.Inlines.Add(r);
-                        }
-
-                        Run startRun = new Run(normalizedSource.Substring(startIdx, startLen));
-                        startRun.Foreground = new SolidColorBrush(currentTheme.SourceStartStringColor);
-                        startRun.FontWeight = FontWeights.Bold;
-                        para.Inlines.Add(startRun);
-
-                        int betweenLength = stopIdx - startEnd;
-                        if (betweenLength > 0)
-                        {
-                            Run betweenRun = new Run(normalizedSource.Substring(startEnd, betweenLength));
-                            betweenRun.Foreground = new SolidColorBrush(currentTheme.SourceInfoStringColor);
-                            betweenRun.FontWeight = FontWeights.Bold;
-                            para.Inlines.Add(betweenRun);
-                        }
-
-                        Run stopRun = new Run(normalizedSource.Substring(stopIdx, stopLen));
-                        stopRun.Foreground = new SolidColorBrush(currentTheme.SourceStopStringColor);
-                        stopRun.FontWeight = FontWeights.Bold;
-                        para.Inlines.Add(stopRun);
-
-                        if (stopEnd < normalizedSource.Length)
-                        {
-                            foreach (Run r in CreateSyntaxHighlightedRuns(
-                                normalizedSource.Substring(stopEnd)))
-                                para.Inlines.Add(r);
-                        }
-
-                        startPositionText.Text = "pos: " + startIdx;
-                        startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
-                        stopPositionText.Text = "pos: " + stopIdx;
-                        stopPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
-
-                        string trackBlock = normalizedSource.Substring(startIdx, stopEnd - startIdx);
-                        string extractedVersion = TrackItem.ExtractVersion(trackBlock);
-                        if (!string.IsNullOrEmpty(extractedVersion) && currentTrackItem != null)
-                        {
-                            currentTrackItem.LatestVersion = extractedVersion;
-                            UpdateVersionDisplay();
-                        }
-                    }
-                    else if (startIdx >= 0 && startLen > 0 &&
-                             startIdx + startLen <= normalizedSource.Length)
-                    {
-                        int startEnd = startIdx + startLen;
-
-                        if (startIdx > 0)
-                        {
-                            foreach (Run r in CreateSyntaxHighlightedRuns(
-                                normalizedSource.Substring(0, startIdx)))
-                                para.Inlines.Add(r);
-                        }
-
-                        Run startRun = new Run(normalizedSource.Substring(startIdx, startLen));
-                        startRun.Foreground = new SolidColorBrush(currentTheme.SourceStartStringColor);
-                        startRun.FontWeight = FontWeights.Bold;
-                        para.Inlines.Add(startRun);
-
-                        if (startEnd < normalizedSource.Length)
-                        {
-                            foreach (Run r in CreateSyntaxHighlightedRuns(
-                                normalizedSource.Substring(startEnd)))
-                                para.Inlines.Add(r);
-                        }
-
-                        startPositionText.Text = "pos: " + startIdx;
-                        startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
-                        stopPositionText.Text = "NOT FOUND";
-                        stopPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
-                    }
-                    else
-                    {
-                        foreach (Run r in CreateSyntaxHighlightedRuns(normalizedSource))
-                            para.Inlines.Add(r);
-
-                        startPositionText.Text = "NOT FOUND";
-                        startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
-                        stopPositionText.Text = "";
-                    }
-                }
-                else if (!string.IsNullOrEmpty(startStr))
-                {
-                    // Only start string provided — highlight just that
-                    string normalizedSource = source.Replace("\r\n", "\n").Replace("\r", "\n");
-                    int startIdx = -1;
-                    int startLen = 0;
-
-                    if (TrackItem.IsRegexPattern(startStr))
-                    {
-                        var match = TrackItem.FindRegexMatch(normalizedSource, startStr, 0);
-                        if (match != null && match.Success)
-                        {
-                            startIdx = match.Index;
-                            startLen = match.Length;
-                        }
-                    }
-                    else
-                    {
-                        string normalizedStart = startStr.Replace("\r\n", "\n").Replace("\r", "\n");
-                        startIdx = normalizedSource.IndexOf(normalizedStart, StringComparison.Ordinal);
-                        startLen = normalizedStart.Length;
-
-                        if (startIdx < 0)
-                        {
-                            string cs = NormalizeWhitespace(normalizedSource);
-                            string cst = NormalizeWhitespace(normalizedStart);
-                            int ci = cs.IndexOf(cst, StringComparison.Ordinal);
-                            if (ci >= 0)
-                            {
-                                startIdx = MapNormalizedToRaw(normalizedSource, ci);
-                                int endRaw = MapNormalizedToRaw(normalizedSource, ci + cst.Length);
-                                startLen = endRaw - startIdx;
-                            }
-                        }
-                    }
-
-                    if (startIdx >= 0 && startLen > 0 && startIdx + startLen <= normalizedSource.Length)
-                    {
-                        if (startIdx > 0)
-                        {
-                            foreach (Run r in CreateSyntaxHighlightedRuns(
-                                normalizedSource.Substring(0, startIdx)))
-                                para.Inlines.Add(r);
-                        }
-
-                        Run startRun = new Run(normalizedSource.Substring(startIdx, startLen));
-                        startRun.Foreground = new SolidColorBrush(currentTheme.SourceStartStringColor);
-                        startRun.FontWeight = FontWeights.Bold;
-                        para.Inlines.Add(startRun);
-
-                        if (startIdx + startLen < normalizedSource.Length)
-                        {
-                            foreach (Run r in CreateSyntaxHighlightedRuns(
-                                normalizedSource.Substring(startIdx + startLen)))
-                                para.Inlines.Add(r);
-                        }
-
-                        startPositionText.Text = "pos: " + startIdx;
-                        startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
-                    }
-                    else
-                    {
-                        foreach (Run r in CreateSyntaxHighlightedRuns(normalizedSource))
-                            para.Inlines.Add(r);
-
-                        startPositionText.Text = "NOT FOUND";
-                        startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
-                    }
-                    stopPositionText.Text = "";
-                }
-                else
-                {
-                    foreach (Run r in CreateSyntaxHighlightedRuns(source))
-                        para.Inlines.Add(r);
-
-                    startPositionText.Text = "";
-                    stopPositionText.Text = "";
-                }
-            }
-            catch (Exception ex)
-            {
-                para.Inlines.Clear();
-                try
-                {
-                    foreach (Run r in CreateSyntaxHighlightedRuns(source))
-                        para.Inlines.Add(r);
-                }
-                catch (Exception)
-                {
-                    Run fallbackRun = new Run(source);
-                    fallbackRun.Foreground = new SolidColorBrush(currentTheme.SourceTagColor);
-                    para.Inlines.Add(fallbackRun);
-                }
-
-                startPositionText.Text = "Error: " + ex.Message;
-                startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
-                stopPositionText.Text = "";
-            }
-
-            sourceView.Document.Blocks.Add(para);
-
-            // Scroll to the start string position
-            if (!string.IsNullOrEmpty(startStr))
-            {
-                try
-                {
-                    string normalizedForScroll = source.Replace("\r\n", "\n").Replace("\r", "\n");
-                    int scrollIdx = -1;
-
-                    if (TrackItem.IsRegexPattern(startStr))
-                    {
-                        var match = TrackItem.FindRegexMatch(normalizedForScroll, startStr, 0);
-                        if (match != null && match.Success)
-                            scrollIdx = match.Index;
-                    }
-                    else
-                    {
-                        string normalizedStartForScroll = startStr.Replace("\r\n", "\n").Replace("\r", "\n");
-                        scrollIdx = normalizedForScroll.IndexOf(normalizedStartForScroll,
-                            StringComparison.Ordinal);
-
-                        if (scrollIdx < 0)
-                        {
-                            string cs = NormalizeWhitespace(normalizedForScroll);
-                            string cst = NormalizeWhitespace(normalizedStartForScroll);
-                            int ci = cs.IndexOf(cst, StringComparison.Ordinal);
-                            if (ci >= 0)
-                                scrollIdx = MapNormalizedToRaw(normalizedForScroll, ci);
-                        }
-                    }
-
-                    if (scrollIdx >= 0)
-                    {
-                        ScrollSourceViewToPosition(scrollIdx);
-                    }
-                }
-                catch (Exception) { }
-            }
-        }
-
-        private void GoToStartString_Click(object sender, RoutedEventArgs e)
-        {
-            if (string.IsNullOrEmpty(currentSource) || string.IsNullOrEmpty(editStartString.Text))
-            {
-                statusFile.Text = "No source loaded or Start String is empty";
-                return;
-            }
-
-            // Re-display source (this highlights and sets position texts)
-            DisplaySource(currentSource);
-
-            // Now scroll to the start position
-            string normalizedSource = currentSource.Replace("\r\n", "\n").Replace("\r", "\n");
-            string searchStr = editStartString.Text;
-            int idx = -1;
-
-            if (TrackItem.IsRegexPattern(searchStr))
-            {
-                var match = TrackItem.FindRegexMatch(normalizedSource, searchStr, 0);
-                if (match != null && match.Success)
-                    idx = match.Index;
-            }
-            else
-            {
-                string normalizedSearch = searchStr.Replace("\r\n", "\n").Replace("\r", "\n");
-                idx = normalizedSource.IndexOf(normalizedSearch, StringComparison.Ordinal);
-
-                if (idx < 0)
-                {
-                    string cs = NormalizeWhitespace(normalizedSource);
-                    string cst = NormalizeWhitespace(normalizedSearch);
-                    int ci = cs.IndexOf(cst, StringComparison.Ordinal);
-                    if (ci >= 0)
-                        idx = MapNormalizedToRaw(normalizedSource, ci);
-                }
-            }
-
-            if (idx < 0)
-            {
-                statusFile.Text = "Start String not found in source";
-                startPositionText.Text = "NOT FOUND";
-                startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
-                return;
-            }
-
-            startPositionText.Text = "pos: " + idx;
-            startPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
-            ScrollSourceViewToPosition(idx);
-
-            string regexNote = TrackItem.IsRegexPattern(searchStr) ? " (regex)" : "";
-            statusFile.Text = "Start String found at position " + idx + regexNote;
-        }
-
-        private void GoToStopString_Click(object sender, RoutedEventArgs e)
-        {
             if (string.IsNullOrEmpty(currentSource) || string.IsNullOrEmpty(editStopString.Text))
             {
                 statusFile.Text = "No source loaded or Stop String is empty";
@@ -9380,6 +9727,9 @@ namespace ElementalTracker
 
             // Re-display source (this highlights and sets position texts)
             DisplaySource(currentSource);
+
+		    // Switch to Source tab AFTER source is displayed
+		    rightTabs.SelectedIndex = 0;
 
             // Now scroll to the stop position
             string normalizedSource = currentSource.Replace("\r\n", "\n").Replace("\r", "\n");
@@ -9457,6 +9807,196 @@ namespace ElementalTracker
             string regexNote = TrackItem.IsRegexPattern(stopStr) ? " (regex)" : "";
             statusFile.Text = "Stop String found at position " + idx + regexNote;
         }
+
+		private async void GoToDateStartString_Click(object sender, RoutedEventArgs e)
+		{
+		    if (string.IsNullOrEmpty(editReleaseDateStartString.Text))
+		    {
+		        statusFile.Text = "Release Date Start String is empty";
+		        return;
+		    }
+
+		    if (string.IsNullOrEmpty(currentSource) && currentTrackItem != null && !string.IsNullOrWhiteSpace(currentTrackItem.TrackURL))
+		    {
+		        statusFile.Text = "Downloading source...";
+		        string url = currentTrackItem.TrackURL;
+		        if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+		            url = "https://" + url;
+
+		        try
+		        {
+		            SetupHttpHeaders(url);
+		            currentSource = await httpClient.GetStringAsync(url);
+		        }
+		        catch (Exception)
+		        {
+		            statusFile.Text = "Failed to download source";
+		            return;
+		        }
+		    }
+
+		    if (string.IsNullOrEmpty(currentSource))
+		    {
+		        statusFile.Text = "No source loaded";
+		        return;
+		    }
+
+			DisplaySource(currentSource);
+			rightTabs.SelectedIndex = 0;
+
+		    string normalizedSource = currentSource.Replace("\r\n", "\n").Replace("\r", "\n");
+		    string searchStr = editReleaseDateStartString.Text;
+		    int idx = -1;
+
+		    if (TrackItem.IsRegexPattern(searchStr))
+		    {
+		        var match = TrackItem.FindRegexMatch(normalizedSource, searchStr, 0);
+		        if (match != null && match.Success)
+		            idx = match.Index;
+		    }
+		    else
+		    {
+		        string normalizedSearch = searchStr.Replace("\r\n", "\n").Replace("\r", "\n");
+		        idx = normalizedSource.IndexOf(normalizedSearch, StringComparison.Ordinal);
+
+		        if (idx < 0)
+		        {
+		            string cs = NormalizeWhitespace(normalizedSource);
+		            string cst = NormalizeWhitespace(normalizedSearch);
+		            int ci = cs.IndexOf(cst, StringComparison.Ordinal);
+		            if (ci >= 0)
+		                idx = MapNormalizedToRaw(normalizedSource, ci);
+		        }
+		    }
+
+		    if (idx < 0)
+		    {
+				statusFile.Text = "Release Date Start String not found in source";
+				dateStartPositionText.Text = "NOT FOUND";
+				dateStartPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
+				return;
+		    }
+
+		    await System.Threading.Tasks.Task.Delay(100);
+		    ScrollSourceViewToPosition(idx);
+
+		    string regexNote = TrackItem.IsRegexPattern(searchStr) ? " (regex)" : "";
+		    dateStartPositionText.Text = "pos: " + idx;
+			dateStartPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+		    statusFile.Text = "Release Date Start String found at position " + idx + regexNote;
+		}
+
+		private async void GoToDateStopString_Click(object sender, RoutedEventArgs e)
+		{
+		    if (string.IsNullOrEmpty(editReleaseDateStopString.Text))
+		    {
+		        statusFile.Text = "Release Date Stop String is empty";
+		        return;
+		    }
+
+		    if (string.IsNullOrEmpty(currentSource) && currentTrackItem != null && !string.IsNullOrWhiteSpace(currentTrackItem.TrackURL))
+		    {
+		        statusFile.Text = "Downloading source...";
+		        string url = currentTrackItem.TrackURL;
+		        if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+		            url = "https://" + url;
+
+		        try
+		        {
+		            SetupHttpHeaders(url);
+		            currentSource = await httpClient.GetStringAsync(url);
+		        }
+		        catch (Exception)
+		        {
+		            statusFile.Text = "Failed to download source";
+		            return;
+		        }
+		    }
+
+		    if (string.IsNullOrEmpty(currentSource))
+		    {
+		        statusFile.Text = "No source loaded";
+		        return;
+		    }
+
+			DisplaySource(currentSource);
+			rightTabs.SelectedIndex = 0;
+
+		    string normalizedSource = currentSource.Replace("\r\n", "\n").Replace("\r", "\n");
+		    string startStr = editReleaseDateStartString.Text ?? "";
+		    string stopStr = editReleaseDateStopString.Text;
+		    int idx = -1;
+
+		    int searchAfter = 0;
+		    if (!string.IsNullOrEmpty(startStr))
+		    {
+		        if (TrackItem.IsRegexPattern(startStr))
+		        {
+		            var match = TrackItem.FindRegexMatch(normalizedSource, startStr, 0);
+		            if (match != null && match.Success)
+		                searchAfter = match.Index + match.Length;
+		        }
+		        else
+		        {
+		            string ns = startStr.Replace("\r\n", "\n").Replace("\r", "\n");
+		            int si = normalizedSource.IndexOf(ns, StringComparison.Ordinal);
+		            if (si >= 0)
+		                searchAfter = si + ns.Length;
+		            else
+		            {
+		                string cs = NormalizeWhitespace(normalizedSource);
+		                string cst = NormalizeWhitespace(ns);
+		                int ci = cs.IndexOf(cst, StringComparison.Ordinal);
+		                if (ci >= 0)
+		                {
+		                    int rawStart = MapNormalizedToRaw(normalizedSource, ci);
+		                    int rawEnd = MapNormalizedToRaw(normalizedSource, ci + cst.Length);
+		                    searchAfter = rawEnd;
+		                }
+		            }
+		        }
+		    }
+
+		    if (TrackItem.IsRegexPattern(stopStr))
+		    {
+		        var match = TrackItem.FindRegexMatch(normalizedSource, stopStr, searchAfter);
+		        if (match != null && match.Success)
+		            idx = match.Index;
+		    }
+		    else
+		    {
+		        string normalizedSearch = stopStr.Replace("\r\n", "\n").Replace("\r", "\n");
+		        idx = normalizedSource.IndexOf(normalizedSearch, searchAfter, StringComparison.Ordinal);
+
+		        if (idx < 0)
+		        {
+		            string cs = NormalizeWhitespace(normalizedSource);
+		            string cst = NormalizeWhitespace(normalizedSearch);
+		            string collapsedBefore = NormalizeWhitespace(normalizedSource.Substring(0, searchAfter));
+		            int collapsedSearchAfter = collapsedBefore.Length;
+
+		            int ci = cs.IndexOf(cst, collapsedSearchAfter, StringComparison.Ordinal);
+		            if (ci >= 0)
+		                idx = MapNormalizedToRaw(normalizedSource, ci);
+		        }
+		    }
+
+		    if (idx < 0)
+		    {
+				statusFile.Text = "Release Date Stop String not found in source";
+				dateStopPositionText.Text = "NOT FOUND";
+				dateStopPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMismatchColor);
+				return;
+		    }
+
+		    await System.Threading.Tasks.Task.Delay(100);
+		    ScrollSourceViewToPosition(idx);
+
+		    string regexNote = TrackItem.IsRegexPattern(stopStr) ? " (regex)" : "";
+		    dateStopPositionText.Text = "pos: " + idx;
+			dateStopPositionText.Foreground = new SolidColorBrush(currentTheme.VersionMatchColor);
+		    statusFile.Text = "Release Date Stop String found at position " + idx + regexNote;
+		}
 
 		/// <summary>
 		/// Scrolls the source view so that the text at the given character position
@@ -10295,7 +10835,7 @@ namespace ElementalTracker
 
                             var menuItem = webView.CoreWebView2.Environment
                                 .CreateContextMenuItem(
-                                    "Set as Download URL",
+                                    "Set Download URL",
                                     null,
                                     Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
 
@@ -10317,7 +10857,7 @@ namespace ElementalTracker
                             menuItems.Insert(0, menuItem);
                         }
 
-                        // "Set as Start String" / "Set as Stop String" for selected text
+                        // "Set Version Start String" / "Set as Stop String" for selected text
                         if (contextInfo.HasSelection)
                         {
                             string selectedText = contextInfo.SelectionText;
@@ -10326,7 +10866,7 @@ namespace ElementalTracker
                             {
                                 var startMenuItem = webView.CoreWebView2.Environment
                                     .CreateContextMenuItem(
-                                        "Set as Start String",
+                                        "Set Version Start String",
                                         null,
                                         Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
 
@@ -10345,7 +10885,7 @@ namespace ElementalTracker
 
                                 var stopMenuItem = webView.CoreWebView2.Environment
                                     .CreateContextMenuItem(
-                                        "Set as Stop String",
+                                        "Set Version Stop String",
                                         null,
                                         Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
 
@@ -10362,6 +10902,44 @@ namespace ElementalTracker
                                     });
                                 };
 
+								var dateStartMenuItem = webView.CoreWebView2.Environment
+								    .CreateContextMenuItem(
+								        "Set Date Start String",
+								        null,
+								        Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
+
+								dateStartMenuItem.CustomItemSelected += (miSender, miArgs) =>
+								{
+								    Dispatcher.Invoke(() =>
+								    {
+								        editReleaseDateStartString.Text = selectedText;
+								        MarkDirty();
+								        statusFile.Text = "Date Start String set from selection";
+
+								        if (!string.IsNullOrEmpty(currentSource))
+								            DisplaySource(currentSource);
+								    });
+								};
+
+								var dateStopMenuItem = webView.CoreWebView2.Environment
+								    .CreateContextMenuItem(
+								        "Set Date Stop String",
+								        null,
+								        Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
+
+								dateStopMenuItem.CustomItemSelected += (miSender, miArgs) =>
+								{
+								    Dispatcher.Invoke(() =>
+								    {
+								        editReleaseDateStopString.Text = selectedText;
+								        MarkDirty();
+								        statusFile.Text = "Date Stop String set from selection";
+
+								        if (!string.IsNullOrEmpty(currentSource))
+								            DisplaySource(currentSource);
+								    });
+								};
+
                                 menuItems.Insert(0, webView.CoreWebView2.Environment
                                     .CreateContextMenuItem(
                                         "",
@@ -10372,7 +10950,7 @@ namespace ElementalTracker
                                 {
                                     var releaseDateMenuItem = webView.CoreWebView2.Environment
                                         .CreateContextMenuItem(
-                                            "Set to Release Date",
+                                            "Set Release Date",
                                             null,
                                             Microsoft.Web.WebView2.Core.CoreWebView2ContextMenuItemKind.Command);
 
@@ -10391,6 +10969,8 @@ namespace ElementalTracker
 
                                 menuItems.Insert(0, stopMenuItem);
                                 menuItems.Insert(0, startMenuItem);
+                                menuItems.Insert(0, dateStopMenuItem);
+								menuItems.Insert(0, dateStartMenuItem);
                             }
                         }
                     };

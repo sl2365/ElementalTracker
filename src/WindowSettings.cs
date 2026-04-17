@@ -42,9 +42,11 @@ namespace ElementalTracker
 
         // Editor path
         public string EditorPath { get; set; } = "";
+		public string DefaultPublisherName { get; set; } = "";
 
 		// Search engine
 		public string SearchEngine { get; set; } = "DuckDuckGo";
+		public string DefaultTrackMode { get; set; } = "html";
 
         // Column settings
         public List<ColumnSetting> ColumnSettings { get; set; } = new List<ColumnSetting>();
@@ -113,6 +115,7 @@ namespace ElementalTracker
                 writer.WriteElementString("HBotCol0", HBotCol0.ToString());
                 writer.WriteElementString("SourceFontSize", SourceFontSize.ToString());
                 writer.WriteElementString("EditorPath", EditorPath ?? "");
+                writer.WriteElementString("DefaultPublisherName", DefaultPublisherName ?? "");
                 writer.WriteElementString("ActiveThemePath", ActiveThemePath ?? "");
                 writer.WriteElementString("SpsSuiteRootPath", SpsSuiteRootPath ?? "");
                 writer.WriteElementString("TrackSettingsCollapsed", TrackSettingsCollapsed.ToString());
@@ -127,6 +130,7 @@ namespace ElementalTracker
                 writer.WriteElementString("TabAppSettingsVisible", TabAppSettingsVisible.ToString());
                 writer.WriteElementString("ToolbarPosition", ToolbarPosition ?? "Top");
                 writer.WriteElementString("SearchEngine", SearchEngine ?? "DuckDuckGo");
+                writer.WriteElementString("DefaultTrackMode", DefaultTrackMode ?? "html");
 
                 // Save column settings
                 writer.WriteStartElement("Columns");
@@ -179,6 +183,7 @@ namespace ElementalTracker
                 ws.HBotCol0 = ParseDouble(root, "HBotCol0", ws.HBotCol0);
                 ws.SourceFontSize = ParseDouble(root, "SourceFontSize", ws.SourceFontSize);
                 ws.EditorPath = GetNodeText(root, "EditorPath");
+                ws.DefaultPublisherName = GetNodeText(root, "DefaultPublisherName");
                 ws.ActiveThemePath = GetNodeText(root, "ActiveThemePath");
                 ws.SpsSuiteRootPath = GetNodeText(root, "SpsSuiteRootPath");
                 ws.TrackSettingsCollapsed = ParseBool(root, "TrackSettingsCollapsed", ws.TrackSettingsCollapsed);
@@ -202,6 +207,10 @@ namespace ElementalTracker
                 ws.SearchEngine = GetNodeText(root, "SearchEngine");
                 if (string.IsNullOrEmpty(ws.SearchEngine))
                     ws.SearchEngine = "DuckDuckGo";
+
+                ws.DefaultTrackMode = GetNodeText(root, "DefaultTrackMode");
+				if (string.IsNullOrEmpty(ws.DefaultTrackMode))
+				    ws.DefaultTrackMode = "html";
 
                 // Load column settings
                 XmlNode columnsNode = root.SelectSingleNode("Columns");
