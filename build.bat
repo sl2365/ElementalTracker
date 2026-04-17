@@ -14,6 +14,10 @@ cd /d "%~dp0"
 echo Closing any running instances...
 taskkill /IM %EXENAME% /F 2>nul
 
+:: Clean previous build:
+echo Cleaning previous build...
+dotnet clean -c Release
+
 :: Restore NuGet packages (needed for WebView2):
 echo Restoring packages...
 dotnet restore

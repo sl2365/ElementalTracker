@@ -847,8 +847,7 @@ namespace ElementalTracker
 			trackDataHeader.FontWeight = FontWeights.Bold;
 			trackDataHeader.FontSize = 13;
 			trackDataHeader.Foreground = new SolidColorBrush(currentTheme.TabSelectedForeground);
-			trackDataHeader.Margin = new Thickness(0, 0, 0, 4);
-			fieldsPanel.Children.Add(trackDataHeader);
+			trackDataHeader.Margin = new Thickness(0, 0, 0, 8);
 
 			Border trackDataBorder = new Border();
 			trackDataBorder.BorderBrush = new SolidColorBrush(currentTheme.SplitterColor);
@@ -859,6 +858,7 @@ namespace ElementalTracker
 			trackDataBorder.Tag = "TrackDataBorder";
 
 			StackPanel trackDataPanel = new StackPanel();
+			trackDataPanel.Children.Add(trackDataHeader);
 
 			editName = AddSettingsField(trackDataPanel, "Track Name:");
 			editName.ToolTip = "Set a name for your track. This is not a filename.";
@@ -929,8 +929,7 @@ namespace ElementalTracker
 			trackSettingsHeader.FontWeight = FontWeights.Bold;
 			trackSettingsHeader.FontSize = 13;
 			trackSettingsHeader.Foreground = new SolidColorBrush(currentTheme.TabSelectedForeground);
-			trackSettingsHeader.Margin = new Thickness(0, 0, 0, 4);
-			fieldsPanel.Children.Add(trackSettingsHeader);
+			trackSettingsHeader.Margin = new Thickness(0, 0, 0, 8);
 
 			Border trackSettingsBorder = new Border();
 			trackSettingsBorder.BorderBrush = new SolidColorBrush(currentTheme.SplitterColor);
@@ -941,6 +940,7 @@ namespace ElementalTracker
 			trackSettingsBorder.Tag = "TrackSettingsBorder";
 
 			StackPanel trackSettingsFieldsPanel = new StackPanel();
+			trackSettingsFieldsPanel.Children.Add(trackSettingsHeader);
 
 			// Version Start String with position text
 			DockPanel startLabelDock = new DockPanel();
@@ -6100,13 +6100,20 @@ namespace ElementalTracker
 			{
 			    foreach (var child in fp.Children)
 			    {
-			        if (child is TextBlock tb && (tb.Text == "Track Data" || tb.Text == "Track Settings"))
-			        {
-			            tb.Foreground = new SolidColorBrush(theme.TabSelectedForeground);
-			        }
-			        else if (child is Border bdr && (bdr.Tag as string == "TrackDataBorder" || bdr.Tag as string == "TrackSettingsBorder"))
+			        if (child is Border bdr && (bdr.Tag as string == "TrackDataBorder" || bdr.Tag as string == "TrackSettingsBorder"))
 			        {
 			            bdr.BorderBrush = new SolidColorBrush(theme.SplitterColor);
+
+			            if (bdr.Child is StackPanel sp)
+			            {
+			                foreach (var inner in sp.Children)
+			                {
+			                    if (inner is TextBlock tb && (tb.Text == "Track Data" || tb.Text == "Track Settings"))
+			                    {
+			                        tb.Foreground = new SolidColorBrush(theme.TabSelectedForeground);
+			                    }
+			                }
+			            }
 			        }
 			    }
 			}
