@@ -8705,141 +8705,535 @@ namespace ElementalTracker
 		    };
 		}
 
-        private void About_Click(object sender, RoutedEventArgs e)
-        {
-            Window aboutWindow = new Window();
-            aboutWindow.Title = "About " + AppInfo.AppName;
-            aboutWindow.Width = 560;
-            aboutWindow.Height = 520;
-            aboutWindow.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            aboutWindow.Owner = this;
-            aboutWindow.ResizeMode = ResizeMode.NoResize;
-            aboutWindow.Background = new SolidColorBrush(currentTheme.ListBackground);
+		private void About_Click(object sender, RoutedEventArgs e)
+		{
+		    Window aboutWindow = new Window();
+		    aboutWindow.Title = "About " + AppInfo.AppName;
+		    aboutWindow.Width = 800;
+		    aboutWindow.Height = 650;
+		    aboutWindow.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+		    aboutWindow.Owner = this;
+		    aboutWindow.ResizeMode = ResizeMode.NoResize;
+		    aboutWindow.Background = new SolidColorBrush(currentTheme.ListBackground);
 
-            ScrollViewer scroll = new ScrollViewer();
-            scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-            scroll.Padding = new Thickness(24);
+		    // Main grid: left nav + right content
+		    Grid mainGrid = new Grid();
+		    mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+		    mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            StackPanel panel = new StackPanel();
+		    // ---- Left panel: icon, version, nav list ----
+		    Border leftBorder = new Border();
+		    leftBorder.Background = new SolidColorBrush(currentTheme.WindowBackground);
+		    leftBorder.BorderBrush = new SolidColorBrush(currentTheme.SplitterColor);
+		    leftBorder.BorderThickness = new Thickness(0, 0, 1, 0);
+		    Grid.SetColumn(leftBorder, 0);
 
-            // App icon and title
-            Image appIcon = new Image();
-            try
-            {
-                string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
-                System.Drawing.Icon exeIcon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
-                if (exeIcon != null)
-                {
-                    using (var ms = new System.IO.MemoryStream())
-                    {
-                        exeIcon.ToBitmap().Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                        ms.Position = 0;
-                        BitmapImage bmp = new BitmapImage();
-                        bmp.BeginInit();
-                        bmp.CacheOption = BitmapCacheOption.OnLoad;
-                        bmp.StreamSource = ms;
-                        bmp.EndInit();
-                        appIcon.Source = bmp;
-                    }
-                }
-            }
-            catch (Exception) { }
-            appIcon.Width = 64;
-            appIcon.Height = 64;
-            appIcon.HorizontalAlignment = HorizontalAlignment.Center;
-            appIcon.Margin = new Thickness(0, 0, 0, 8);
-            panel.Children.Add(appIcon);
+		    StackPanel leftPanel = new StackPanel();
+		    leftPanel.Margin = new Thickness(12);
 
-            TextBlock appName = new TextBlock();
-            appName.Text = AppInfo.AppName;
-            appName.FontSize = 22;
-            appName.FontWeight = FontWeights.Bold;
-            appName.Foreground = new SolidColorBrush(currentTheme.WindowForeground);
-            appName.HorizontalAlignment = HorizontalAlignment.Center;
-            panel.Children.Add(appName);
+		    // App icon
+		    Image appIcon = new Image();
+		    try
+		    {
+		        Uri iconUri = new Uri("pack://application:,,,/icons/app.ico");
+		        BitmapDecoder decoder = BitmapDecoder.Create(iconUri, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+		        BitmapFrame bestFrame = decoder.Frames[0];
+		        foreach (var frame in decoder.Frames)
+		        {
+		            if (frame.PixelWidth > bestFrame.PixelWidth)
+		                bestFrame = frame;
+		        }
+		        appIcon.Source = bestFrame;
+		    }
+		    catch (Exception) { }
+		    appIcon.Width = 64;
+		    appIcon.Height = 64;
+		    appIcon.HorizontalAlignment = HorizontalAlignment.Center;
+		    appIcon.Margin = new Thickness(0, 0, 0, 6);
+		    leftPanel.Children.Add(appIcon);
 
-            // Version
-            string version = System.Reflection.Assembly.GetExecutingAssembly()
-                .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
-                ?.InformationalVersion ?? "Unknown";
-            TextBlock versionText = new TextBlock();
-            versionText.Text = "Version " + version;
-            versionText.FontSize = 12;
-            versionText.Foreground = new SolidColorBrush(currentTheme.StatusBarForeground);
-            versionText.HorizontalAlignment = HorizontalAlignment.Center;
-            versionText.Margin = new Thickness(0, 2, 0, 16);
-            panel.Children.Add(versionText);
+		    TextBlock appName = new TextBlock();
+		    appName.Text = AppInfo.AppName;
+		    appName.FontSize = 15;
+		    appName.FontWeight = FontWeights.Bold;
+		    appName.Foreground = new SolidColorBrush(currentTheme.WindowForeground);
+		    appName.HorizontalAlignment = HorizontalAlignment.Center;
+		    leftPanel.Children.Add(appName);
 
-            // Instructions
-            string instructions =
-                "GETTING STARTED\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "1. Create a new track file using the New Track button.\n" +
-                "2. Add items to track by entering a URL.\n" +
-                "3. Click Download to fetch the page source.\n" +
-                "4. Add a Start String (where to begin reading), and a Stop String (where to stop)." +
-                " The app extracts the text between these markers as the \"latest version\".\n" +
-                "5. Use Batch Check to scan all tracked items at once and see which " +
-                "have changed, are unchanged, are new, or have errors.\n\n\n" +
-                "TOOLBAR ICONS\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "Track Settings toolbar:\n" +
-                "  • New Track — create a new track file\n" +
-                "  • Save / Save As — save the current track file\n" +
-                "  • Go to Start / Stop String — navigate to the marker in the source view\n" +
-                "  • Download — download the page source for the selected item\n" +
-                "  • Open in Browser — open the URL in your default browser\n" +
-                "  • Copy Version — copy the extracted version to the version field\n\n" +
-                "Web Browser toolbar:\n" +
-                "  • Back / Forward / Home — standard navigation\n" +
-                "  • Zoom In / Out / Reset / Fit — control the web view zoom level\n" +
-                "  • Clear Cookies / Clear All — remove browsing data\n\n" +
-                "Source View toolbar:\n" +
-                "  • Search Down / Up — search through the page source\n" +
-                "  • Font Size +/- — adjust the source view font size\n\n\n" +
-                "STATUS ICONS\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "The coloured circle in the Status column indicates:\n" +
-                "  • Green — version has changed since last check\n" +
-                "  • Grey — version is unchanged\n" +
-                "  • Blue — newly added item, not yet checked\n" +
-                "  • Red — an error occurred during the check\n\n\n" +
-                "THEMES\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "Use the Theme tab to customise the appearance. You can apply preset " +
-                "themes, modify individual colours, and save/load custom theme files.\n\n\n" +
-                "COLUMN SETTINGS\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "Use App Settings to show/hide columns, reorder them, and adjust widths. " +
-                "Click Apply to update the list view, or Restore Defaults to reset.\n\n\n" +
-                "TIPS\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "  • Use the checkbox column to select multiple items for batch operations.\n" +
-                "  • Right-click items in the list for additional context menu options.\n" +
-                "  • Track files are saved as standard files that can be backed up or shared.\n" +
-                "  • The source view highlights the Start and Stop strings when found.";
+		    string version = System.Reflection.Assembly.GetExecutingAssembly()
+		        .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
+		        ?.InformationalVersion ?? "Unknown";
+		    TextBlock versionText = new TextBlock();
+		    versionText.Text = "Version " + version;
+		    versionText.FontSize = 11;
+		    versionText.Foreground = new SolidColorBrush(currentTheme.StatusBarForeground);
+		    versionText.HorizontalAlignment = HorizontalAlignment.Center;
+		    versionText.Margin = new Thickness(0, 2, 0, 16);
+		    leftPanel.Children.Add(versionText);
 
-            TextBlock instrText = new TextBlock();
-            instrText.Text = instructions;
-            instrText.FontSize = 13;
-            instrText.Foreground = new SolidColorBrush(currentTheme.WindowForeground);
-            instrText.TextWrapping = TextWrapping.Wrap;
-            instrText.LineHeight = 20;
-            panel.Children.Add(instrText);
+		    // Navigation list
+		    ListBox navList = new ListBox();
+		    navList.Background = Brushes.Transparent;
+		    navList.BorderThickness = new Thickness(0);
+		    navList.Foreground = new SolidColorBrush(currentTheme.WindowForeground);
 
-            // Copyright
-            TextBlock copyright = new TextBlock();
-            copyright.Text = "© 2026 sl23. " + AppInfo.AppName + ". All rights reserved.";
-            copyright.FontSize = 11;
-            copyright.Foreground = new SolidColorBrush(currentTheme.StatusBarForeground);
-            copyright.HorizontalAlignment = HorizontalAlignment.Center;
-            copyright.Margin = new Thickness(0, 20, 0, 0);
-            panel.Children.Add(copyright);
+		    // Style the ListBox items
+		    Style navItemStyle = new Style(typeof(ListBoxItem));
+		    navItemStyle.Setters.Add(new Setter(ListBoxItem.PaddingProperty, new Thickness(8, 6, 8, 6)));
+		    navItemStyle.Setters.Add(new Setter(ListBoxItem.MarginProperty, new Thickness(0, 1, 0, 1)));
+		    navItemStyle.Setters.Add(new Setter(ListBoxItem.ForegroundProperty, new SolidColorBrush(currentTheme.WindowForeground)));
+		    navItemStyle.Setters.Add(new Setter(ListBoxItem.BackgroundProperty, Brushes.Transparent));
+		    navItemStyle.Setters.Add(new Setter(ListBoxItem.CursorProperty, System.Windows.Input.Cursors.Hand));
 
-            scroll.Content = panel;
-            aboutWindow.Content = scroll;
-            aboutWindow.ShowDialog();
-        }
+		    Trigger navSelTrigger = new Trigger();
+		    navSelTrigger.Property = ListBoxItem.IsSelectedProperty;
+		    navSelTrigger.Value = true;
+		    navSelTrigger.Setters.Add(new Setter(ListBoxItem.BackgroundProperty, new SolidColorBrush(currentTheme.TabSelectedBackground)));
+		    navSelTrigger.Setters.Add(new Setter(ListBoxItem.ForegroundProperty, new SolidColorBrush(currentTheme.TabSelectedForeground)));
+		    navItemStyle.Triggers.Add(navSelTrigger);
+
+		    Trigger navHoverTrigger = new Trigger();
+		    navHoverTrigger.Property = ListBoxItem.IsMouseOverProperty;
+		    navHoverTrigger.Value = true;
+		    navHoverTrigger.Setters.Add(new Setter(ListBoxItem.BackgroundProperty, new SolidColorBrush(currentTheme.ListHoverBackground)));
+		    navHoverTrigger.Setters.Add(new Setter(ListBoxItem.ForegroundProperty, new SolidColorBrush(currentTheme.ListHoverForeground)));
+		    navItemStyle.Triggers.Add(navHoverTrigger);
+
+		    navList.ItemContainerStyle = navItemStyle;
+
+		    string[] sections = new string[]
+		    {
+		        "Getting Started",
+		        "Track Data Fields",
+		        "Track Settings Fields",
+		        "Download URL Placeholders",
+		        "Toolbar Reference",
+		        "Status Icons",
+		        "Batch Checking",
+		        "Source View",
+		        "Web Browser",
+		        "Themes",
+		        "App Settings",
+		        "SPS Categories",
+		        "Keyboard Shortcuts",
+		        "Tips & Tricks",
+		        "About"
+		    };
+
+		    foreach (string section in sections)
+		    {
+		        navList.Items.Add(section);
+		    }
+
+		    leftPanel.Children.Add(navList);
+		    leftBorder.Child = leftPanel;
+		    mainGrid.Children.Add(leftBorder);
+
+		    // ---- Right panel: content area ----
+		    ScrollViewer contentScroll = new ScrollViewer();
+		    contentScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+		    contentScroll.Padding = new Thickness(24);
+		    Grid.SetColumn(contentScroll, 1);
+
+		    TextBlock contentText = new TextBlock();
+		    contentText.TextWrapping = TextWrapping.Wrap;
+		    contentText.FontSize = 13;
+		    contentText.Foreground = new SolidColorBrush(currentTheme.WindowForeground);
+		    contentText.LineHeight = 22;
+		    contentScroll.Content = contentText;
+		    mainGrid.Children.Add(contentScroll);
+
+		    // Content dictionary
+		    Dictionary<string, string> helpContent = new Dictionary<string, string>
+		    {
+		        { "Getting Started",
+		            "GETTING STARTED\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "Elemental Tracker monitors web pages for version changes, release dates, " +
+		            "and other information by scanning page source code between user-defined markers.\n\n" +
+		            "Basic Workflow:\n\n" +
+		            "1. Create a Category\n" +
+		            "   Right-click the category tree and select New Category to organise your tracks.\n\n" +
+		            "2. Create a New Track\n" +
+		            "   Click the New Track button in the toolbar, or right-click a category.\n\n" +
+		            "3. Set the Track URL\n" +
+		            "   Enter the web page URL that contains the version or release information.\n\n" +
+		            "4. Download the Page Source\n" +
+		            "   Click the Download button to fetch the page. The source appears in the Source tab.\n\n" +
+		            "5. Define Start and Stop Strings\n" +
+		            "   In the source view, find the text that surrounds the version number. " +
+		            "Right-click to set the Start String (the text before the version) and the " +
+		            "Stop String (the text after the version). The app extracts everything between " +
+		            "these two markers as the \"latest version\".\n\n" +
+		            "6. Save the Track\n" +
+		            "   Click Save to store the track file. The extracted version is saved for comparison.\n\n" +
+		            "7. Check for Updates\n" +
+		            "   Use Batch Check to scan all tracks at once. Items that have changed since " +
+		            "the last check are highlighted in the list."
+		        },
+
+		        { "Track Data Fields",
+		            "TRACK DATA FIELDS\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "These fields store the core information about each tracked item.\n\n" +
+		            "Track Name\n" +
+		            "  The display name for this track. This is shown in the list view and is also " +
+		            "used as the filename when saving. It does not need to match the software's " +
+		            "actual name.\n\n" +
+		            "Track URL\n" +
+		            "  The web page to monitor. This is the page whose source code will be " +
+		            "downloaded and searched for version information. Enter the full URL " +
+		            "including https://.\n\n" +
+		            "Download URL\n" +
+		            "  An optional direct link to download the software. Supports version " +
+		            "placeholders — see the Download URL Placeholders section for details.\n\n" +
+		            "Version\n" +
+		            "  The currently saved version number. This is compared against the latest " +
+		            "detected version during a batch check. Use the Update Version button to " +
+		            "copy the latest detected version into this field.\n\n" +
+		            "Latest Version (auto-detected)\n" +
+		            "  Displays the version extracted from the page source using the Start and " +
+		            "Stop strings. This field is read-only and updates automatically when the " +
+		            "source is downloaded.\n\n" +
+		            "Release Date\n" +
+		            "  The release date of the current version. Can be set manually, from the " +
+		            "source view context menu, or automatically using Date Start/Stop strings.\n\n" +
+		            "Publisher Name\n" +
+		            "  The software publisher. Used for display and filtering in SPS categories.\n\n" +
+		            "Suite Name\n" +
+		            "  If the software belongs to a suite (e.g. Microsoft Office), enter the " +
+		            "suite name here. Used for grouping in SPS categories."
+		        },
+
+		        { "Track Settings Fields",
+		            "TRACK SETTINGS FIELDS\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "These fields control how the app extracts information from the page source.\n\n" +
+		            "Version Start String\n" +
+		            "  A unique string that appears in the page source immediately before the " +
+		            "version number. The app searches for this text and begins reading after it.\n\n" +
+		            "  You can use plain text or a regex pattern. Regex patterns must be wrapped " +
+		            "in forward slashes, e.g.  /Version:\\s*/\n\n" +
+		            "  Tip: Right-click text in the Source or Browser tab and select " +
+		            "\"Set as Start String\" to set this quickly.\n\n" +
+		            "Version Stop String\n" +
+		            "  A unique string that appears immediately after the version number. The app " +
+		            "stops reading when it encounters this text. Supports plain text or regex.\n\n" +
+		            "  The extracted version is everything between the end of the Start String " +
+		            "and the beginning of the Stop String.\n\n" +
+		            "Release Date Start String\n" +
+		            "  Works like the Version Start String but for extracting the release date. " +
+		            "Set this to the text that appears just before the date on the page.\n\n" +
+		            "Release Date Stop String\n" +
+		            "  The text that appears just after the release date. The date is extracted " +
+		            "between the Date Start and Date Stop strings.\n\n" +
+		            "USING REGEX PATTERNS\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "Wrap your pattern in forward slashes to use regex:\n\n" +
+		            "  /Version\\s*:\\s*/        matches \"Version:\" with flexible whitespace\n" +
+		            "  /<span class=\"ver\">/    matches a specific HTML tag\n" +
+		            "  /v\\d+\\.\\d+/            matches patterns like v1.0, v12.34\n\n" +
+		            "Regex is useful when the surrounding text varies slightly between updates."
+		        },
+
+		        { "Download URL Placeholders",
+		            "DOWNLOAD URL PLACEHOLDERS\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "The Download URL field supports special placeholders that are automatically " +
+		            "replaced with the current version number when downloading.\n\n" +
+		            "Available Placeholders:\n\n" +
+		            "  {VERSION}\n" +
+		            "    Inserts the version number as-is.\n" +
+		            "    Example: 2.18 → 2.18\n\n" +
+		            "  {VERSION_}\n" +
+		            "    Replaces dots with underscores.\n" +
+		            "    Example: 2.18 → 2_18\n\n" +
+		            "  {VERSION-}\n" +
+		            "    Replaces dots with hyphens.\n" +
+		            "    Example: 2.18 → 2-18\n\n" +
+		            "EXAMPLES\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "If the current version is 2.18:\n\n" +
+		            "  URL Template:\n" +
+		            "  https://example.com/downloads/App_{VERSION_}.exe\n\n" +
+		            "  Resolves to:\n" +
+		            "  https://example.com/downloads/App_2_18.exe\n\n" +
+		            "  URL Template:\n" +
+		            "  https://example.com/releases/{VERSION}/app-{VERSION-}.zip\n\n" +
+		            "  Resolves to:\n" +
+		            "  https://example.com/releases/2.18/app-2-18.zip\n\n" +
+		            "You can combine multiple placeholders in a single URL. The placeholders " +
+		            "are case-sensitive and must include the curly braces."
+		        },
+
+		        { "Toolbar Reference",
+		            "TOOLBAR REFERENCE\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "MAIN TOOLBAR\n\n" +
+		            "  • Save — save the current track\n" +
+		            "  • Save All — save all modified tracks\n" +
+		            "  • Check — check the selected track for updates\n" +
+		            "  • Batch Check — check all tracks in the current category\n" +
+		            "  • Stop — cancel a running batch check\n\n" +
+		            "TRACK SETTINGS TOOLBAR  (vertical, left side)\n\n" +
+		            "  • New Track — create a new track file in the current category\n" +
+		            "  • Go to Version Start — scroll the source view to the Start String position\n" +
+		            "  • Go to Version Stop — scroll the source view to the Stop String position\n" +
+		            "  • Go to Date Start — scroll to the Date Start String position\n" +
+		            "  • Go to Date Stop — scroll to the Date Stop String position\n" +
+		            "  • Track Mode (</> or Aa) — toggle between HTML source mode and rendered " +
+		            "text mode. HTML mode parses the raw source; Text mode extracts visible text only\n" +
+		            "  • Download — download the page source for the current track\n" +
+		            "  • Open in Browser — open the Track URL in the built-in browser tab\n" +
+		            "  • Update Version — copy the latest detected version to the Version field\n" +
+		            "  • Download File — download a file using the Download URL\n\n" +
+		            "SOURCE VIEW TOOLBAR\n\n" +
+		            "  • Search field — type to search within the page source\n" +
+		            "  • Search Down / Up — find the next or previous match\n" +
+		            "  • Font Size +/- — increase or decrease the source view font size\n\n" +
+		            "WEB BROWSER TOOLBAR\n\n" +
+		            "  • Back / Forward — browser navigation\n" +
+		            "  • Home — navigate to the Track URL\n" +
+		            "  • Zoom In / Out / Reset / Fit — control the browser zoom level\n" +
+		            "  • Clear Cookies — remove cookies for the current site\n" +
+		            "  • Clear All — clear all browsing data"
+		        },
+
+		        { "Status Icons",
+		            "STATUS ICONS\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "The coloured circle in the Status column indicates the result of the " +
+		            "last check:\n\n" +
+		            "  ● Green (changed)\n" +
+		            "    The latest version detected on the page is different from the saved " +
+		            "version. An update is available.\n\n" +
+		            "  ● Grey (unchanged)\n" +
+		            "    The version on the page matches the saved version. No update.\n\n" +
+		            "  ● Blue (new)\n" +
+		            "    This track has been newly created and has not been checked yet.\n\n" +
+		            "  ● Red (error)\n" +
+		            "    An error occurred when trying to download or parse the page. This " +
+		            "could be a network error, an invalid URL, or the Start/Stop strings " +
+		            "were not found in the source.\n\n" +
+		            "After a batch check, the category tree also shows a summary of how many " +
+		            "items have changed within each category."
+		        },
+
+		        { "Batch Checking",
+		            "BATCH CHECKING\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "Batch Check downloads and checks all tracks in the current category " +
+		            "(or all categories) in one operation.\n\n" +
+		            "How It Works:\n\n" +
+		            "1. Click the Batch Check button in the main toolbar.\n" +
+		            "2. The app downloads each track's URL and extracts the latest version.\n" +
+		            "3. The status column updates for each track as it completes.\n" +
+		            "4. A progress bar shows the overall progress.\n" +
+		            "5. Click Stop to cancel a running batch check.\n\n" +
+		            "After Checking:\n\n" +
+		            "  • Items marked \"changed\" have a new version available.\n" +
+		            "  • Click Update Version to accept the new version.\n" +
+		            "  • Save the track to store the updated version.\n" +
+		            "  • The category tree updates to show how many items changed.\n\n" +
+		            "Tip: You can also check a single track by selecting it and clicking Check."
+		        },
+
+		        { "Source View",
+		            "SOURCE VIEW\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "The Source tab displays the downloaded page source with syntax highlighting.\n\n" +
+		            "HIGHLIGHTING\n\n" +
+		            "  • Start String — highlighted in the Start String colour\n" +
+		            "  • Extracted content — highlighted in the Info String colour (the version " +
+		            "or date that will be extracted)\n" +
+		            "  • Stop String — highlighted in the Stop String colour\n" +
+		            "  • HTML tags, attributes, and values are syntax-coloured\n\n" +
+		            "Both version and date start/stop regions are highlighted simultaneously " +
+		            "so you can see both extractions at once.\n\n" +
+		            "CONTEXT MENU\n\n" +
+		            "Right-click selected text in the source view for quick actions:\n\n" +
+		            "  • Copy — copy selected text to clipboard\n" +
+		            "  • Set as Start String — use selected text as the Version Start String\n" +
+		            "  • Set as Stop String — use selected text as the Version Stop String\n" +
+		            "  • Set as Date Start String — use selected text as the Date Start String\n" +
+		            "  • Set as Date Stop String — use selected text as the Date Stop String\n" +
+		            "  • Set to Release Date — copy selected text to the Release Date field " +
+		            "(appears when the selected text looks like a date)\n" +
+		            "  • Set as Download URL — copy selected text to the Download URL field " +
+		            "(appears when the selected text looks like a URL)\n\n" +
+		            "TRACK MODE\n\n" +
+		            "Use the Track Mode button (</> or Aa) to switch between:\n\n" +
+		            "  • HTML mode (</>) — works with the raw HTML source. Best for most sites.\n" +
+		            "  • Text mode (Aa) — extracts only the visible rendered text. Useful when " +
+		            "the version appears in plain text but is hard to locate in raw HTML."
+		        },
+
+		        { "Web Browser",
+		            "WEB BROWSER\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "The Browser tab provides a built-in web browser for viewing tracked pages.\n\n" +
+		            "NAVIGATION\n\n" +
+		            "  • The browser automatically loads the Track URL when you select a track.\n" +
+		            "  • Use Back, Forward, and Home buttons to navigate.\n" +
+		            "  • Type a URL in the address bar and press Enter to navigate directly.\n\n" +
+		            "CONTEXT MENU\n\n" +
+		            "Right-click in the browser for quick actions:\n\n" +
+		            "  • Set Version Start String — set selected text as Start String\n" +
+		            "  • Set Version Stop String — set selected text as Stop String\n" +
+		            "  • Set Date Start String — set selected text as Date Start String\n" +
+		            "  • Set Date Stop String — set selected text as Date Stop String\n" +
+		            "  • Set Release Date — set selected text as Release Date (when it looks " +
+		            "like a date)\n" +
+		            "  • Set Download URL — set a link as the Download URL (when right-clicking " +
+		            "a file download link)\n\n" +
+		            "ZOOM\n\n" +
+		            "  • Zoom In/Out — manually adjust the zoom level\n" +
+		            "  • Fit — automatically fit the page width to the browser panel\n" +
+		            "  • Reset — return to 100% zoom"
+		        },
+
+		        { "Themes",
+		            "THEMES\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "Use the Theme tab to fully customise the appearance of the application.\n\n" +
+		            "PRESET THEMES\n\n" +
+		            "Select from built-in themes using the preset dropdown. Presets include " +
+		            "various dark and light themes to suit your preference.\n\n" +
+		            "CUSTOM COLOURS\n\n" +
+		            "Click any colour swatch to open a colour picker and change that element's " +
+		            "colour. Changes are applied immediately so you can preview them.\n\n" +
+		            "Colour groups include:\n" +
+		            "  • Window — main window background and foreground\n" +
+		            "  • Menu — menu bar colours\n" +
+		            "  • Toolbar — toolbar colours for main, track, and tab toolbars\n" +
+		            "  • Category Tree — tree view colours including selection\n" +
+		            "  • List View — item list colours including selection and hover\n" +
+		            "  • Tabs — tab handle and content colours\n" +
+		            "  • Source View — syntax highlighting colours\n" +
+		            "  • Status Bar — status bar colours\n" +
+		            "  • Buttons, Scrollbars, Checkboxes, and more\n\n" +
+		            "SAVING & LOADING THEMES\n\n" +
+		            "  • Save Theme — save your current colour scheme to a .theme file\n" +
+		            "  • Load Theme — load a previously saved theme file\n" +
+		            "  • Themes are stored as simple text files that can be shared with others."
+		        },
+
+		        { "App Settings",
+		            "APP SETTINGS\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "The App Settings tab lets you configure application-wide settings.\n\n" +
+		            "COLUMN SETTINGS\n\n" +
+		            "  • Show/hide columns using the checkboxes\n" +
+		            "  • Drag to reorder columns\n" +
+		            "  • Adjust column widths\n" +
+		            "  • Click Apply to update the list view\n" +
+		            "  • Click Restore Defaults to reset column settings\n\n" +
+		            "GENERAL SETTINGS\n\n" +
+		            "  • Editor Path — path to an external text editor for viewing source files\n" +
+		            "  • Default Publisher Name — automatically applied to new tracks\n" +
+		            "  • Default Track Mode — choose whether new tracks default to HTML or Text mode\n" +
+		            "  • SyMenu Path — path to a SyMenu installation for integration\n" +
+		            "  • Publisher Filter — filter SPS categories by publisher name\n\n" +
+		            "SUITE SELECTION\n\n" +
+		            "  Select which software suites to include when working with SPS categories. " +
+		            "This filters the items shown based on their Suite Name field."
+		        },
+
+		        { "SPS Categories",
+		            "SPS CATEGORIES\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "SPS (Single-file Package Store) categories store all their track items " +
+		            "in a single XML file rather than individual .track files.\n\n" +
+		            "HOW THEY WORK\n\n" +
+		            "  • An SPS category is detected when the folder contains an .xml file.\n" +
+		            "  • All items are stored in one XML file within the category folder.\n" +
+		            "  • The Publisher Filter setting can be used to filter displayed items.\n" +
+		            "  • Suite selection controls which suites are shown.\n\n" +
+		            "WHEN TO USE SPS\n\n" +
+		            "  SPS categories are useful when you have a large number of items from a " +
+		            "single source and want to manage them as a group rather than individual " +
+		            "track files.\n\n" +
+		            "SAVING\n\n" +
+		            "  When you save in an SPS category, all items are written to the single " +
+		            "XML file. The save operation updates the entire category at once."
+		        },
+
+		        { "Keyboard Shortcuts",
+		            "KEYBOARD SHORTCUTS\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "  Ctrl+S          Save the current track\n" +
+		            "  Ctrl+Shift+S    Save all modified tracks\n" +
+		            "  Ctrl+N          Create a new track\n" +
+		            "  Ctrl+D          Download page source\n" +
+		            "  Ctrl+B          Open URL in browser tab\n" +
+		            "  F5              Batch check current category\n" +
+		            "  Escape          Stop a running batch check\n" +
+		            "  Delete          Delete the selected track\n\n" +
+		            "SOURCE VIEW\n\n" +
+		            "  Ctrl+F          Focus the search field\n" +
+		            "  F3              Find next match\n" +
+		            "  Shift+F3        Find previous match\n\n" +
+		            "Note: Some shortcuts may vary depending on your configuration. " +
+		            "Hover over toolbar buttons to see their assigned shortcuts."
+		        },
+
+		        { "Tips & Tricks",
+		            "TIPS & TRICKS\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            "SELECTING START/STOP STRINGS\n\n" +
+		            "  • Choose text that is unique on the page and unlikely to change between " +
+		            "updates. HTML tag attributes, IDs, and class names are often good choices.\n" +
+		            "  • Avoid selecting text that includes the version number itself — the " +
+		            "Start String should end just before the version, and the Stop String " +
+		            "should begin just after it.\n" +
+		            "  • Use the Go To buttons to verify your strings are matching correctly.\n" +
+		            "  • The position text next to each label shows \"pos: N\" when found, or " +
+		            "\"NOT FOUND\" if the string doesn't match.\n\n" +
+		            "REGEX TIPS\n\n" +
+		            "  • Use /pattern/ syntax for flexible matching.\n" +
+		            "  • \\s* matches optional whitespace (spaces, tabs, newlines).\n" +
+		            "  • .* matches any characters (greedy).\n" +
+		            "  • .*? matches any characters (non-greedy / shortest match).\n\n" +
+		            "GENERAL TIPS\n\n" +
+		            "  • Use the checkbox column to select multiple items for batch operations.\n" +
+		            "  • Right-click items in the list for context menu options.\n" +
+		            "  • Track files (.track) are simple text files that can be backed up, " +
+		            "edited, or shared.\n" +
+		            "  • The source view highlights both version and date strings simultaneously.\n" +
+		            "  • Right-click in both the Source tab and Browser tab to quickly set " +
+		            "Start/Stop strings from selected text.\n" +
+		            "  • Use Track Mode to switch between raw HTML and rendered text when " +
+		            "the version is hard to find in the source.\n" +
+		            "  • After a batch check, look at the category tree for a quick summary " +
+		            "of which categories have updates."
+		        },
+
+		        { "About",
+		            "ABOUT " + AppInfo.AppName.ToUpper() + "\n" +
+		            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		            AppInfo.AppName + " is a desktop application for tracking software versions " +
+		            "and release information from web pages.\n\n" +
+		            "Version: " + version + "\n\n" +
+		            "© 2026 sl23. All rights reserved."
+		        }
+		    };
+
+		    // Handle navigation selection
+		    navList.SelectionChanged += (s, ev) =>
+		    {
+		        if (navList.SelectedItem is string selectedSection && helpContent.ContainsKey(selectedSection))
+		        {
+		            contentText.Text = helpContent[selectedSection];
+		            contentScroll.ScrollToTop();
+		        }
+		    };
+
+		    // Select the first item by default
+		    navList.SelectedIndex = 0;
+
+		    aboutWindow.Content = mainGrid;
+		    aboutWindow.ShowDialog();
+		}
 
         // ============================
         // Browser + Download
