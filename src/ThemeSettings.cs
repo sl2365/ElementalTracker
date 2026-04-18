@@ -78,10 +78,10 @@ namespace ElementalTracker
         public Color StatusUnchecked { get; set; } = Color.FromRgb(160, 160, 160);
 
         // ListView cell status colors (text coloring for URL, hash, etc.)
-        public Color CellStatusOk { get; set; } = Color.FromRgb(0, 150, 0);
-        public Color CellStatusChanged { get; set; } = Color.FromRgb(200, 140, 0);
-        public Color CellStatusError { get; set; } = Color.FromRgb(220, 40, 40);
-        public Color CellStatusDefault { get; set; } = Color.FromRgb(0, 0, 0);
+		public Color CellStatusOk { get; set; } = Color.FromRgb(50, 200, 0);      // was 0,150,0
+		public Color CellStatusChanged { get; set; } = Color.FromRgb(255, 180, 60); // was 200,140,0
+		public Color CellStatusError { get; set; } = Color.FromRgb(220, 80, 80);    // was 220,40,40
+		public Color CellStatusDefault { get; set; } = Color.FromRgb(0, 0, 0);     // was 0,0,0
 
         // Track settings panel
         public Color PanelBackground { get; set; } = Color.FromRgb(240, 240, 240);
