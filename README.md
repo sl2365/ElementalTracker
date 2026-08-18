@@ -3,6 +3,9 @@
 [![Release](https://img.shields.io/github/v/release/sl2365/ElementalTracker?style=for-the-badge-square&color=blue)](https://github.com/sl2365/ElementalTracker/releases/latest/download/ElementalTracker.rar)
 [![Release Date](https://img.shields.io/github/release-date/sl2365/ElementalTracker?style=for-the-badge-square&color=yellow)](https://github.com/sl2365/ElementalTracker/releases)
 
+[![Latest Asset Downloads](https://img.shields.io/github/downloads/sl2365/ElementalTracker/latest/ElementalTracker.rar?style=for-the-badge-square&label=downloads&displayAssetName=false&color=blue)](https://github.com/sl2365/ElementalTracker/releases/latest)
+[![Total Downloads](https://img.shields.io/github/downloads/sl2365/ElementalTracker/total?style=for-the-badge-square&label=downloads-total&color=blue)](https://github.com/sl2365/ElementalTracker/releases)
+
 Precision web tracking made simple to keep you informed of what matters to you.
 
 ---
